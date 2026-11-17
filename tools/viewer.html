@@ -1,0 +1,48 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>model viewer</title>
+<style>html,body{margin:0;background:#222;overflow:hidden}canvas{display:block;width:100vw;height:100vh}
+.l{position:absolute;color:#fff;font:12px monospace;transform:translate(-50%,0);text-shadow:0 1px 2px #000}</style>
+<script type="importmap">{"imports":{"three":"../vendor/three/three.module.js","three/addons/":"../vendor/three/addons/"}}</script>
+</head><body><canvas id="c"></canvas>
+<script type="module">
+import { createGfx, THREE } from '../js/gfx.js';
+import { loadAssets, spawn, models } from '../js/assets.js';
+const q = new URLSearchParams(location.search);
+const gfx = createGfx(document.getElementById('c'));
+gfx.resize(innerWidth, innerHeight);
+if (q.get('bloom')) gfx.bloom.strength = Number(q.get('bloom'));
+if (q.get('thr')) gfx.bloom.threshold = Number(q.get('thr'));
+if (q.get('exp')) gfx.renderer.toneMappingExposure = Number(q.get('exp'));
+if (q.get('key')) gfx.key.intensity = Number(q.get('key'));
+if (q.get('hemi')) gfx.hemi.intensity = Number(q.get('hemi'));
+if (q.get('env')) gfx.scene.environmentIntensity = Number(q.get('env'));
+await loadAssets();
+let names = q.get('m') ? q.get('m').split(',') : Object.keys(models).sort();
+const cols = Number(q.get('cols')) || Math.ceil(Math.sqrt(names.length * 1.7));
+const gap = Number(q.get('gap')) || 1.6;
+const rows = Math.ceil(names.length / cols);
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(200, 200), new THREE.MeshStandardMaterial({ color: q.get('bg') || 0x9aa3ad, roughness: 1 }));
+ground.rotation.x = -Math.PI / 2; ground.position.y = -0.12; ground.receiveShadow = true; gfx.scene.add(ground);
+const scale = Number(q.get('s')) || 1;
+names.forEach((n, i) => {
+  const o = spawn(n);
+  const cx = (i % cols - (cols - 1) / 2) * gap, cz = (Math.floor(i / cols) - (rows - 1) / 2) * gap;
+  o.position.set(cx, 0, cz); o.scale.setScalar(scale);
+  if (q.get('ry')) o.rotation.y = Number(q.get('ry')) * Math.PI / 180;
+  gfx.scene.add(o);
+  o.userData.label = n;
+});
+const w = cols * gap, d = rows * gap;
+gfx.fitShadow(0, 0, w, d);
+const pitch = (Number(q.get('pitch')) || 52) * Math.PI / 180;
+const fov = gfx.camera.fov * Math.PI / 180;
+const dist = Math.max(d * 0.62 / Math.tan(fov / 2), w * 0.55 / (Math.tan(fov / 2) * gfx.camera.aspect)) * (Number(q.get('zoom')) || 1);
+gfx.camera.position.set(0, Math.sin(pitch) * dist, Math.cos(pitch) * dist);
+gfx.camera.lookAt(0, 0.3, 0);
+gfx.render(); gfx.render();
+gfx.scene.traverse((o) => { if (o.userData.label) { const v = o.position.clone(); v.z += gap * 0.42; v.project(gfx.camera);
+  const e = document.createElement('div'); e.className = 'l'; e.textContent = o.userData.label;
+  e.style.left = ((v.x + 1) / 2 * innerWidth) + 'px'; e.style.top = ((1 - v.y) / 2 * innerHeight) + 'px'; document.body.appendChild(e); } });
+window.__ready = true;
+window.__info = () => gfx.renderer.info.render;
+</script></body></html>

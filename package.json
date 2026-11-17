@@ -1,0 +1,19 @@
+{
+  "name": "chop-and-toss",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "CHOP & TOSS, a 3D local co-op cooking game for two chefs on one keyboard",
+  "scripts": {
+    "start": "node server.js",
+    "models": ".blender-venv/bin/python blender/build_all.py",
+    "test:sim": "node tools/simtest.mjs all 1",
+    "test:prove": "node tools/prove.mjs",
+    "test:keys": "node tools/keytest.mjs",
+    "test:shaders": "node tools/powcheck.mjs",
+    "test:audio": "node tools/audiotest.mjs",
+    "perf": "node tools/perf.mjs",
+    "stills": "node tools/stills.mjs",
+    "clip": "sh tools/clip-all.sh"
+  }
+}

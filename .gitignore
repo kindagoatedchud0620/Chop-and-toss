@@ -1,0 +1,6 @@
+.blender-venv/
+blender/__pycache__/
+node_modules/
+out/segments/
+*.log
+.DS_Store

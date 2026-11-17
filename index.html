@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CHOP &amp; TOSS</title>
+<meta name="description" content="A chaotic 3D co-op cooking game for two chefs on one keyboard.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='18' r='11' fill='%23e5392b'/%3E%3Cpath d='M16 4l3 5 5-1-4 4H12L8 8l5 1z' fill='%2362b93c'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="css/style.css">
+<script type="importmap">
+{ "imports": { "three": "./vendor/three/three.module.js", "three/addons/": "./vendor/three/addons/" } }
+</script>
+</head>
+<body>
+<canvas id="stage"></canvas>
+
+<div id="alarm"></div>
+<div id="popups"></div>
+
+<div id="hud" class="hidden">
+  <div id="tickets"></div>
+  <div id="streak" class="hidden"><span class="lab">TIP STREAK</span><b>x1</b></div>
+  <div id="status">
+    <div id="clock">03:00</div>
+    <div id="score"><span class="lab">SCORE</span><b>0</b></div>
+    <div id="mapname"></div>
+  </div>
+  <div id="hint-p1" class="keys"><i class="dot p1"></i>WASD move<span>Space grab</span><span>E use</span><span>Q dash</span></div>
+  <div id="hint-p2" class="keys"><i class="dot p2"></i>Arrows move<span>R Shift grab</span><span>/ use</span><span>. dash</span></div>
+  <div id="sound">M sound <b>off</b><span>R new kitchen</span></div>
+</div>
+
+<div id="center" class="hidden"><div id="big"></div><div id="sub"></div></div>
+
+<div id="title" class="screen hidden">
+  <div class="title-inner">
+    <div class="logo-wrap">
+      <h1 class="logo"><span>CHOP</span><em>&amp;</em><span>TOSS</span></h1>
+      <p class="tag">Chop fast. Throw smart. Do not burn the soup.</p>
+    </div>
+    <div class="title-grid">
+      <section class="panel how">
+        <h2>Two chefs, one keyboard</h2>
+        <div class="players">
+          <div class="player p1">
+            <div class="who"><img id="face-p1" alt=""><div><b>Player 1</b><span>Cat chef, left side</span></div></div>
+            <div class="kb">
+              <div class="row"><kbd class="dash">Q</kbd><kbd class="mv">W</kbd><kbd class="use">E</kbd></div>
+              <div class="row"><kbd class="mv">A</kbd><kbd class="mv">S</kbd><kbd class="mv">D</kbd></div>
+              <div class="row"><kbd class="grab wide">Space</kbd></div>
+            </div>
+            <ul class="legend">
+              <li><i class="mv"></i>Move<small>W A S D</small></li>
+              <li><i class="grab"></i>Pick up, drop, plate<small>Space or L Shift</small></li>
+              <li><i class="use"></i>Chop, throw, wash, spray<small>E or L Ctrl</small></li>
+              <li><i class="dash"></i>Dash<small>Q or L Alt</small></li>
+            </ul>
+          </div>
+          <div class="player p2">
+            <div class="who"><img id="face-p2" alt=""><div><b>Player 2</b><span>Raccoon chef, right side</span></div></div>
+            <div class="kb">
+              <div class="row"><kbd class="blank"></kbd><kbd class="mv">&#9650;</kbd><kbd class="blank"></kbd></div>
+              <div class="row"><kbd class="mv">&#9664;</kbd><kbd class="mv">&#9660;</kbd><kbd class="mv">&#9654;</kbd></div>
+              <div class="row"><kbd class="dash">.</kbd><kbd class="use">/</kbd><kbd class="grab mid">Shift</kbd></div>
+            </div>
+            <ul class="legend">
+              <li><i class="mv"></i>Move<small>Arrow keys</small></li>
+              <li><i class="grab"></i>Pick up, drop, plate<small>R Shift or Enter</small></li>
+              <li><i class="use"></i>Chop, throw, wash, spray<small>/ or R Ctrl</small></li>
+              <li><i class="dash"></i>Dash<small>. or R Alt</small></li>
+            </ul>
+          </div>
+        </div>
+        <p class="tip">Hold food and press your use key to throw it. It lands on counters, boards, pots, pans, or in your partner's hands.</p>
+      </section>
+      <section class="panel menu">
+        <h2>Today's menu</h2>
+        <div id="recipes"></div>
+        <p class="tip">Serve the leftmost ticket first to build a tip streak up to x4. Wash dirty plates. Put out fires.</p>
+        <div class="chips"><span>3 minute shift</span><span>4 random kitchens</span><span>1 to 3 stars</span></div>
+      </section>
+    </div>
+    <div class="cta">
+      <div class="best"><span>BEST SCORE</span><b id="best">0</b></div>
+      <button id="play" type="button">PLAY RANDOM KITCHEN</button>
+      <div class="cta-note">Press Enter to start<br>M sound, R new kitchen</div>
+    </div>
+  </div>
+</div>
+
+<div id="summary" class="screen hidden">
+  <div class="sum-inner">
+    <div class="sum-head">TIME UP</div>
+    <div class="sum-map" id="sum-map"></div>
+    <div class="stars" id="stars"></div>
+    <div class="sum-score"><b id="sum-score">0</b><span id="sum-best"></span></div>
+    <div class="sum-rows" id="sum-rows"></div>
+    <div class="sum-foot" id="sum-foot"></div>
+    <button id="again" type="button">PLAY ANOTHER KITCHEN</button>
+    <div class="cta-note">Press R or Enter</div>
+  </div>
+</div>
+
+<div id="loading"><div class="load-logo">CHOP &amp; TOSS</div><div class="bar"><i id="loadbar"></i></div></div>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
