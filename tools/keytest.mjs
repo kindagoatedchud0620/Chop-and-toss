@@ -41,47 +41,49 @@ await up('ArrowDown');
 let s = await st();
 check('P1 faces the tomato crate, P2 faces the extinguisher counter', s.chefs[0].target === 'crate:tomato' && (await c.eval(onExt)), JSON.stringify(s.chefs.map((x) => x.target)));
 
-// 3. both grab in the same instant: Space for P1, Right Shift for P2
-await down('Space'); await down('ShiftRight');
+// 3. both grab in the same instant: Space for P1, J for P2
+await down('Space'); await down('KeyJ');
 await waitFor('window.game.world.chefs[0].held && window.game.world.chefs[1].held', 15000);
-await up('Space'); await up('ShiftRight');
+await up('Space'); await up('KeyJ');
 s = await st();
-check('Space picks up a tomato for P1 while Right Shift picks up the extinguisher for P2', s.chefs[0].held === 'tomato' && s.chefs[1].held === 'ext', JSON.stringify(s.chefs.map((x) => x.held)));
+check('Space picks up a tomato for P1 while J picks up the extinguisher for P2', s.chefs[0].held === 'tomato' && s.chefs[1].held === 'ext', JSON.stringify(s.chefs.map((x) => x.held)));
 
-// 4. P1 turns and throws with E while P2 holds / to spray
+// 4. P1 turns and throws with E while P2 holds K to spray
 await tap('KeyS', 300);
-await down('Slash');
+await down('KeyK');
 await down('KeyE');
 await waitFor('window.game.world.stats.thrown > 0 && window.game.world.chefs[1].spraying', 15000);
 s = await st();
 await up('KeyE');
-check('E throws the tomato for P1 while P2 sprays with /', s.thrown === 1 && s.chefs[0].held === null && s.chefs[1].spraying === true, `thrown ${s.thrown}, p2 spraying ${s.chefs[1].spraying}`);
-await up('Slash');
+check('E throws the tomato for P1 while K sprays for P2', s.thrown === 1 && s.chefs[0].held === null && s.chefs[1].spraying === true, `thrown ${s.thrown}, p2 spraying ${s.chefs[1].spraying}`);
+await up('KeyK');
 
-// 5. dashes on Q and . at the same time
-const d0 = await st();
+// 5. dashes on Left Shift and L at the same time
 await down('KeyD'); await down('ArrowUp'); await sleep(120);
-await down('KeyQ'); await down('Period');
+await down('ShiftLeft'); await down('KeyL');
 await waitFor('window.game.world.chefs[0].dashCd > 0 && window.game.world.chefs[1].dashCd > 0', 15000);
 const d1 = await st();
-await up('KeyQ'); await up('Period'); await up('KeyD'); await up('ArrowUp');
-check('Q and . dash both chefs at once', d1.chefs[0].dashCd > 0 && d1.chefs[1].dashCd > 0, JSON.stringify(d1.chefs.map((x) => x.dashCd)));
+await up('ShiftLeft'); await up('KeyL'); await up('KeyD'); await up('ArrowUp');
+check('Left Shift and L dash both chefs at once', d1.chefs[0].dashCd > 0 && d1.chefs[1].dashCd > 0, JSON.stringify(d1.chefs.map((x) => x.dashCd)));
 
-// 6. alternate keys: Left Shift / Left Ctrl for P1, Enter / Right Ctrl for P2
-await down('ControlRight');
-await waitFor('window.game.world.chefs[1].spraying', 10000);
+// 6. old keys are dead: Right Ctrl / Right Shift / Slash must not spray or drop for P2, Q must not dash P1
 s = await st();
+const heldBefore = s.chefs[1].held;
+await down('ControlRight'); await sleep(300);
+const sprayOld = (await st()).chefs[1].spraying;
 await up('ControlRight');
-check('Right Ctrl also sprays for P2 (alternate use key)', s.chefs[1].spraying === true);
-await tap('Enter', 300);
-await waitFor('!window.game.world.chefs[1].held', 8000);
+await tap('ShiftRight', 300); await tap('Slash', 300);
 s = await st();
-check('Enter drops for P2 (alternate grab key)', s.chefs[1].held === null, `held ${s.chefs[1].held}, state ${s.state}`);
+check('Right Ctrl, Right Shift and Slash do nothing for P2 (no spray, no drop)', sprayOld === false && s.chefs[1].spraying === false && s.chefs[1].held === heldBefore, `spraying during ${sprayOld}, held ${heldBefore} -> ${s.chefs[1].held}`);
+await waitFor('window.game.world.chefs[0].dashCd <= 0', 15000);
+await tap('KeyQ', 400);
+s = await st();
+check('Q no longer dashes P1', s.chefs[0].dashCd <= 0, `p1 dashCd ${s.chefs[0].dashCd}`);
 
 // 7. scrolling keys are swallowed
 const dp = await c.eval('window.__dp');
 const scroll = await c.eval('[window.scrollX, window.scrollY]');
-check('Space, arrows and / are preventDefault-ed and the page did not scroll', dp.Space === true && dp.ArrowDown === true && dp.ArrowLeft === true && dp.ArrowUp === true && dp.Slash === true && scroll[0] === 0 && scroll[1] === 0, JSON.stringify(dp));
+check('Space, arrows, J, K and L are preventDefault-ed and the page did not scroll', dp.Space === true && dp.ArrowDown === true && dp.ArrowLeft === true && dp.ArrowUp === true && dp.KeyJ === true && dp.KeyK === true && dp.KeyL === true && scroll[0] === 0 && scroll[1] === 0, JSON.stringify(dp));
 
 // 8. sound is off and no audio context exists
 const snd = await c.eval('({ label: document.querySelector("#sound b").textContent })');

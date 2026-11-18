@@ -99,7 +99,7 @@ export async function launch({ width = 1920, height = 1080, port = 9333 + Math.f
 }
 
 export const VK = {
-  KeyW: 87, KeyA: 65, KeyS: 83, KeyD: 68, KeyE: 69, KeyQ: 81, KeyM: 77, KeyR: 82, Space: 32,
+  KeyW: 87, KeyA: 65, KeyS: 83, KeyD: 68, KeyE: 69, KeyQ: 81, KeyJ: 74, KeyK: 75, KeyL: 76, KeyM: 77, KeyR: 82, Space: 32,
   ShiftLeft: 16, ShiftRight: 16, ControlLeft: 17, ControlRight: 17, AltLeft: 18, AltRight: 18,
   ArrowUp: 38, ArrowDown: 40, ArrowLeft: 37, ArrowRight: 39, Enter: 13, Slash: 191, Period: 190,
 };

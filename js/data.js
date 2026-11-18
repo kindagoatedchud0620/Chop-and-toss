@@ -32,7 +32,8 @@ export const TUNE = {
 
 export const INGREDIENTS = ['tomato', 'bun', 'meat', 'lettuce', 'fish', 'potato'];
 export const CHOPPABLE = { tomato: 1, meat: 1, lettuce: 1, fish: 1, potato: 1 };
-export const POT_OK = { tomato: 1 };
+export const POT_OK = { tomato: 1, meat: 1, potato: 1 };
+export const POT_RECIPES = { soup: ['tomato', 'tomato', 'tomato'], stew: ['meat', 'potato', 'tomato'] };
 export const PAN_OK = { meat: 1, fish: 1, potato: 1 };
 
 export const DISHES = {
@@ -48,8 +49,35 @@ export const DISHES = {
     id: 'fishchips', name: 'Fish & Chips', points: 120, needs: ['fish:cooked', 'potato:cooked'],
     icons: ['fish', 'potato'], steps: 'Chop and fry fish. Chop and fry potato. Plate.',
   },
+  salad: {
+    id: 'salad', name: 'Garden Salad', points: 90, needs: ['lettuce:chopped', 'tomato:chopped'],
+    icons: ['lettuce', 'tomato'], steps: 'Chop lettuce. Chop a tomato. Plate both.',
+  },
+  fishburger: {
+    id: 'fishburger', name: 'Fish Burger', points: 150, needs: ['bun:raw', 'fish:cooked', 'lettuce:chopped'],
+    icons: ['bun', 'fish', 'lettuce'], steps: 'Bun. Chop and fry fish. Chop lettuce. Stack on a plate.',
+  },
+  stew: {
+    id: 'stew', name: 'Hearty Stew', points: 170, needs: ['stew:cooked'],
+    icons: ['meat', 'potato', 'tomato'], steps: 'Chop meat, potato and a tomato. Boil together in a pot. Plate.',
+  },
 };
-export const DISH_IDS = ['soup', 'burger', 'fishchips'];
+export const DISH_IDS = ['soup', 'burger', 'fishchips', 'salad', 'fishburger', 'stew']; // pool order, ?dishes= indexes it
+
+/** pot contents -> finished dish id when complete, else null */
+export function potResult(items) {
+  const have = items.map((i) => i.type).sort().join();
+  for (const [id, r] of Object.entries(POT_RECIPES)) if (r.slice().sort().join() === have) return id;
+  return null;
+}
+/** can this ingredient type join the pot and still become a recipe (sub-multiset of one) */
+export function potCanTake(items, type) {
+  const want = [...items.map((i) => i.type), type];
+  return Object.values(POT_RECIPES).some((r) => {
+    const left = r.slice();
+    return want.every((t) => { const k = left.indexOf(t); if (k < 0) return false; left.splice(k, 1); return true; });
+  });
+}
 
 export const STARS = [0, 500, 1100]; // 1 star always, 2 stars at 500, 3 stars at 1100
 

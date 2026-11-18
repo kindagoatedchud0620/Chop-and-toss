@@ -1,5 +1,5 @@
 // The whole game simulation. Fixed 1/60 s steps, no rendering, no DOM. Views and audio listen to world.events.
-import { TUNE, DT, ROUND_TIME, MAPS, DISHES, DISH_IDS, CHOPPABLE, POT_OK, PAN_OK, CRATE_OF, plateAccepts, dishOfContents, makeRng } from './data.js';
+import { TUNE, DT, ROUND_TIME, MAPS, DISHES, DISH_IDS, CHOPPABLE, PAN_OK, CRATE_OF, plateAccepts, dishOfContents, potResult, potCanTake, makeRng } from './data.js';
 
 const DIRS = [[0, 1], [1, 0], [0, -1], [-1, 0]]; // S, E, N, W  (rot index = facing)
 const angDiff = (a, b) => { let d = a - b; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI; return d; };
@@ -7,17 +7,18 @@ const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 let NEXT_ID = 1;
 
 export class World {
-  constructor(mapIndex, seed = 1) {
+  constructor(mapIndex, seed = 1, menu = null) {
     this.mapIndex = mapIndex;
     this.map = MAPS[mapIndex];
     this.rng = makeRng(seed * 7919 + mapIndex * 104729 + 13);
+    this.menu = menu || this.rollMenu();
     this.events = [];
     this.time = 0;                 // sim time since the shift started
     this.timeLeft = ROUND_TIME;
     this.phase = 'ready';          // ready -> play -> over
     this.score = 0;
     this.streak = 0;
-    this.stats = { served: { soup: 0, burger: 0, fishchips: 0 }, base: 0, tips: 0, missed: 0, bestStreak: 0, wrong: 0, fires: 0, washed: 0, thrown: 0, caught: 0 };
+    this.stats = { served: Object.fromEntries(DISH_IDS.map((id) => [id, 0])), base: 0, tips: 0, missed: 0, bestStreak: 0, wrong: 0, fires: 0, washed: 0, thrown: 0, caught: 0 };
     this.tickets = [];
     this.ticketSpawn = 0;
     this.ticketExtra = 0;
@@ -189,11 +190,11 @@ export class World {
   destroy(item) { item.where = { k: 'gone' }; }
   isThrowable(it) { return it && it.kind === 'ing' && (it.state === 'raw' || it.state === 'chopped'); }
   isChoppable(it) { return it && it.kind === 'ing' && it.state === 'raw' && CHOPPABLE[it.type]; }
-  plateReady(it) { return it && it.kind === 'ing' && ((it.type === 'bun' && it.state === 'raw') || (it.type === 'lettuce' && it.state === 'chopped') || it.state === 'cooked'); }
+  plateReady(it) { return it && it.kind === 'ing' && ((it.type === 'bun' && it.state === 'raw') || ((it.type === 'lettuce' || it.type === 'tomato') && it.state === 'chopped') || it.state === 'cooked'); }
 
   vesselAccepts(v, it) {
     if (!it || it.kind !== 'ing' || it.state !== 'chopped' || v.state === 'burnt' || v.state === 'done') return false;
-    if (v.type === 'pot') return !!POT_OK[it.type] && v.items.length < 3 && v.state === 'idle';
+    if (v.type === 'pot') return v.state === 'idle' && potCanTake(v.items, it.type);
     return !!PAN_OK[it.type] && v.items.length === 0;
   }
   addToVessel(tile, it) {
@@ -582,11 +583,11 @@ export class World {
         if (this.vesselAccepts(v, h)) { c.held = null; this.addToVessel(t, h); this.emit('place', { chef: c, item: h, tile: t }); return true; }
         if (h.kind === 'plate' && v.state === 'done') {
           if (v.type === 'pot') {
-            const soup = this.newItem('ing', 'soup', 'cooked');
-            if (!this.canPlate(h, soup)) return false;
+            const res = this.newItem('ing', potResult(v.items), 'cooked');
+            if (!this.canPlate(h, res)) return false;
             for (const it of v.items) this.destroy(it);
             v.items = []; v.state = 'idle'; v.progress = 0; v.burn = 0;
-            this.addToPlate(h, soup);
+            this.addToPlate(h, res);
             return true;
           }
           const it = v.items[0];
@@ -829,9 +830,15 @@ export class World {
   }
 
   // ---- orders, serving, plates -------------------------------------------
+  rollMenu() {
+    const pool = DISH_IDS.slice();
+    for (let i = pool.length - 1; i > 0; i--) { const j = Math.floor(this.rng() * (i + 1)); [pool[i], pool[j]] = [pool[j], pool[i]]; }
+    return pool.slice(0, 3);
+  }
+
   spawnTicket(initial = false) {
     if (!this.bag.length) {
-      this.bag = DISH_IDS.slice();
+      this.bag = this.menu.slice();
       for (let i = this.bag.length - 1; i > 0; i--) { const j = Math.floor(this.rng() * (i + 1)); [this.bag[i], this.bag[j]] = [this.bag[j], this.bag[i]]; }
     }
     const dish = this.bag.pop();

@@ -1,5 +1,5 @@
 // Plain DOM heads-up display, title screen and end-of-round summary.
-import { DISHES, DISH_IDS, STARS, TUNE } from './data.js';
+import { DISHES, POT_RECIPES, STARS, TUNE } from './data.js';
 
 const $ = (id) => document.getElementById(id);
 const STAR = '<svg viewBox="0 0 24 24"><path d="M12 2.2l2.9 6.3 6.9.8-5.1 4.7 1.4 6.8L12 17.4l-6.1 3.4 1.4-6.8-5.1-4.7 6.9-.8z"/></svg>';
@@ -22,12 +22,31 @@ export class Hud {
   setThumbs(t) {
     this.thumbs = t;
     $('face-p1').src = t.chef_cat; $('face-p2').src = t.chef_raccoon;
-    const flows = {
-      soup: `<span class="grp">${this.img('tomato')}${this.img('tomato')}${this.img('tomato')}</span><span class="op">&#9656;</span>${this.img('board')}<span class="op">&#9656;</span>${this.img('pot')}`,
-      burger: `<span class="grp">${this.img('meat')}${this.img('board')}${this.img('pan')}</span><span class="op">+</span><span class="grp">${this.img('lettuce')}${this.img('board')}</span><span class="op">+</span>${this.img('bun')}`,
-      fishchips: `<span class="grp">${this.img('fish')}${this.img('board')}${this.img('pan')}</span><span class="op">+</span><span class="grp">${this.img('potato')}${this.img('board')}${this.img('pan')}</span>`,
-    };
-    $('recipes').innerHTML = DISH_IDS.map((id) => `<div class="recipe">${this.img('dish_' + id, 'dish')}<div><b>${DISHES[id].name}</b><div class="flow">${flows[id]}</div></div><div class="pts">${DISHES[id].points}<small>plus tip</small></div></div>`).join('');
+  }
+
+  /** ingredient flow picture for a dish, built from its data */
+  flow(d) {
+    const g = (...n) => `<span class="grp">${n.map((x) => this.img(x)).join('')}</span>`;
+    const op = (c) => `<span class="op">${c}</span>`;
+    const r = POT_RECIPES[d.id];
+    if (r) return (new Set(r).size === 1 ? g(...r) + op('&#9656;') + this.img('board') : r.map((i) => g(i, 'board')).join(op('+'))) + op('&#9656;') + this.img('pot');
+    const rank = (k) => (k.endsWith(':raw') ? 1 : 0); // raw parts (the bun) last
+    return d.needs.slice().sort((x, y) => rank(x) - rank(y)).map((k) => {
+      const [type, state] = k.split(':');
+      return g(type, ...(state === 'chopped' ? ['board'] : state === 'cooked' ? ['board', 'pan'] : []));
+    }).join(op('+'));
+  }
+
+  /** title recipe cards for the current menu */
+  showRecipes(menu) {
+    $('recipes').innerHTML = menu.map((id) => `<div class="recipe">${this.img('dish_' + id, 'dish')}<div><b>${DISHES[id].name}</b><div class="flow">${this.flow(DISHES[id])}</div></div><div class="pts">${DISHES[id].points}<small>plus tip</small></div></div>`).join('');
+  }
+
+  /** dish tiles under the countdown number; pass null to remove */
+  menuStrip(menu) {
+    let el = $('menustrip');
+    if (!el) { el = document.createElement('div'); el.id = 'menustrip'; this.el.center.appendChild(el); }
+    el.innerHTML = menu ? menu.map((id) => `<div>${this.img('dish_' + id)}<span>${DISHES[id].name}</span></div>`).join('') : '';
   }
 
   showTitle(on, best = 0) { this.el.title.classList.toggle('hidden', !on); this.el.best.textContent = best; }
@@ -42,6 +61,7 @@ export class Hud {
     this.el.streak.classList.add('hidden');
     this.el.alarm.style.opacity = '0';
     this.el.summary.classList.add('hidden');
+    this.menuStrip(world.menu);
     this.center('', '');
   }
 
@@ -124,8 +144,8 @@ export class Hud {
     const b = $('sum-best');
     b.textContent = isNew ? 'NEW BEST SCORE' : `BEST ${best}`;
     b.className = isNew ? 'new' : '';
-    $('sum-rows').innerHTML = DISH_IDS.map((id) => `<div class="sum-row">${this.img('dish_' + id)}<span class="n">${DISHES[id].name}</span><span class="c">x${s.served[id]}</span><span class="p">${s.served[id] * DISHES[id].points}</span></div>`).join('');
-    const total = s.served.soup + s.served.burger + s.served.fishchips;
+    $('sum-rows').innerHTML = world.menu.map((id) => `<div class="sum-row">${this.img('dish_' + id)}<span class="n">${DISHES[id].name}</span><span class="c">x${s.served[id]}</span><span class="p">${s.served[id] * DISHES[id].points}</span></div>`).join('');
+    const total = world.menu.reduce((n, id) => n + s.served[id], 0);
     $('sum-foot').innerHTML = `<span>Dishes <b>${total}</b></span><span>Tips <b>+${s.tips}</b></span><span>Best streak <b>x${Math.max(1, s.bestStreak)}</b></span>` +
       (s.missed ? `<span class="neg">Missed ${s.missed} <b>-${s.missed * TUNE.missPenalty}</b></span>` : '');
     this.el.summary.classList.remove('hidden');

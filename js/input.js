@@ -1,7 +1,7 @@
 // Split keyboard input for two chefs. Uses physical key codes so layouts do not matter.
 const MAP = [
-  { up: ['KeyW'], down: ['KeyS'], left: ['KeyA'], right: ['KeyD'], pick: ['Space', 'ShiftLeft'], act: ['KeyE', 'ControlLeft'], dash: ['KeyQ', 'AltLeft'] },
-  { up: ['ArrowUp'], down: ['ArrowDown'], left: ['ArrowLeft'], right: ['ArrowRight'], pick: ['ShiftRight', 'Enter', 'NumpadEnter'], act: ['Slash', 'ControlRight'], dash: ['Period', 'AltRight'] },
+  { up: ['KeyW'], down: ['KeyS'], left: ['KeyA'], right: ['KeyD'], pick: ['Space'], act: ['KeyE'], dash: ['ShiftLeft'] },
+  { up: ['ArrowUp'], down: ['ArrowDown'], left: ['ArrowLeft'], right: ['ArrowRight'], pick: ['KeyJ'], act: ['KeyK'], dash: ['KeyL'] },
 ];
 const GAME_KEYS = new Set(MAP.flatMap((m) => Object.values(m).flat()));
 

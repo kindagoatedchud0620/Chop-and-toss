@@ -543,9 +543,10 @@ export class View {
         const lvl = v.state === 'idle' ? 0.1 + n * 0.055 : 0.3;
         tv.soup.position.y = lerp(tv.soup.position.y, lvl, 0.2);
         const col = tv.soupMat.color;
+        const stew = v.items.some((i) => i.type !== 'tomato');
         if (v.state === 'burnt') col.lerp(_c.set(0x1a1a1a), 0.2);
-        else if (v.state === 'idle') col.lerp(_c.set(0xd9785a), 0.2);
-        else col.lerp(_c.set(v.state === 'done' ? (v.burn > 0.5 ? 0xa3301c : 0xe23a22) : 0xe8553a), 0.1);
+        else if (v.state === 'idle') col.lerp(_c.set(stew ? 0xa87b55 : 0xd9785a), 0.2);
+        else col.lerp(_c.set(stew ? (v.burn > 0.5 ? 0x4a2c18 : 0x7a4a28) : v.state === 'done' ? (v.burn > 0.5 ? 0xa3301c : 0xe23a22) : 0xe8553a), 0.1);
       }
     }
     if (!live) return;
@@ -709,7 +710,7 @@ export class View {
       return [it.dirty ? 'plate_dirty' : 'plate', PLATE_S];
     }
     if (it.type === 'charcoal' || it.state === 'burnt') return ['charcoal', ING_S];
-    if (it.type === 'soup') return [null, 1];
+    if (it.type === 'soup' || it.type === 'stew') return [null, 1];
     if (it.type === 'bun') return ['bun', ING_S];
     if (it.state === 'raw') return [it.type, ING_S];
     return [`${it.type}_${it.state}`, ING_S];
@@ -751,7 +752,7 @@ export class View {
       const done = !!dishOfContents(it.contents);
       const k = it.contents.length;
       it.contents.forEach((cit, i) => {
-        if (done || cit.type === 'soup') { const cv = this.itemViews.get(cit); if (cv) cv.g.visible = false, cv.seen = this.frame; return; }
+        if (done || cit.type === 'soup' || cit.type === 'stew') { const cv = this.itemViews.get(cit); if (cv) cv.g.visible = false, cv.seen = this.frame; return; }
         const a = ry + (k === 1 ? 0 : i / k * Math.PI * 2);
         const r = k === 1 ? 0 : 0.11;
         this.place(cit, g.position.x + Math.sin(a) * r * s, g.position.y + 0.045 * s, g.position.z + Math.cos(a) * r * s, ry + i, 0.62 * s * p, true);

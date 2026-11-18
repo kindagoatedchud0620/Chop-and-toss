@@ -3,6 +3,7 @@
 //   ?bot          both chefs are AI (?bot=1 or ?bot=2 for a single AI chef)
 //   ?hold         no real-time loop: call window.__step(n) to advance n frames of 1/60 s
 //   ?seed=N       fixed random seed
+//   ?dishes=0,1,2 force the menu (3 indices into DISH_IDS) for every round
 import { createGfx } from './gfx.js';
 import { loadAssets } from './assets.js';
 import { World } from './sim.js';
@@ -13,13 +14,15 @@ import { Hud } from './hud.js';
 import { Input } from './input.js';
 import { Sfx } from './audio.js';
 import { makeThumbs } from './thumbs.js';
-import { MAPS, DT, STARS } from './data.js';
+import { MAPS, DT, DISH_IDS } from './data.js';
 
 const q = new URLSearchParams(location.search);
 const HOLD = q.has('hold');
 const BOT = q.has('bot') ? (q.get('bot') || 'both') : null;
 const FORCED = q.has('map') ? Math.max(0, Math.min(MAPS.length - 1, parseInt(q.get('map'), 10) || 0)) : null;
 const SEED = q.has('seed') ? Number(q.get('seed')) : null;
+const idx = (q.get('dishes') || '').split(',').map(Number);
+const MENU = idx.length === 3 && new Set(idx).size === 3 && idx.every((i) => Number.isInteger(i) && i >= 0 && i < DISH_IDS.length) ? idx.map((i) => DISH_IDS[i]) : null;
 const BEST_KEY = 'chop-and-toss-best';
 
 const canvas = document.getElementById('stage');
@@ -45,11 +48,11 @@ function pickMap(explicit) {
   return i;
 }
 
-function makeWorld(idx, attract) {
+function makeWorld(idx, attract, menu) {
   if (game.view) game.view.dispose();
   fx.clear();
   const seed = SEED != null ? SEED + game.rounds : (Math.random() * 1e9) | 0;
-  const world = new World(idx, seed);
+  const world = new World(idx, seed, menu || MENU);
   game.world = world;
   game.mapIndex = idx;
   game.view = new View(gfx, fx, world);
@@ -68,13 +71,14 @@ function makeWorld(idx, attract) {
 function startAttract() {
   const w = makeWorld(pickMap(), true);
   w.start(); w.timeLeft = 1e9;
+  hud.showRecipes(w.menu);
   game.state = 'title';
   hud.showHud(false); hud.hideSummary(); hud.center('', '');
   hud.showTitle(true, game.best);
 }
 
-function startRound(mapIdx) {
-  const w = makeWorld(pickMap(mapIdx), false);
+function startRound(mapIdx, menu) {
+  const w = makeWorld(pickMap(mapIdx), false, menu);
   game.rounds++;
   game.history.push(w.map.id);
   game.state = 'countdown'; game.cd = 0; game.tu = 0;
@@ -95,7 +99,7 @@ function advance() {
     hud.center(label, game.cd < 2.4 ? w.map.name : '', label === 'GO!' ? 'go' : '');
     hud.centerScale(1.6 - Math.min(1, local * 4) * 0.6 + (local > 0.7 ? -(local - 0.7) * 0.5 : 0), local > 0.85 ? 1 - (local - 0.85) / 0.15 * (label === 'GO!' ? 1 : 0.5) : 1);
     for (const edge of [0.8, 1.6]) if (before < edge && game.cd >= edge) sfx.tick();
-    if (before < 2.4 && game.cd >= 2.4) { w.start(); sfx.go(); }
+    if (before < 2.4 && game.cd >= 2.4) { w.start(); sfx.go(); hud.menuStrip(null); }
     if (game.cd >= 3.1) { game.state = 'play'; hud.center('', ''); hud.centerScale(1, 1); }
   }
   const playing = game.state === 'play' || game.state === 'countdown';
@@ -187,18 +191,20 @@ window.__test = {
   },
 };
 
+// from the title the round uses the menu shown there; otherwise a fresh map and menu
+const go = () => startRound(undefined, game.state === 'title' ? game.world.menu : undefined);
 input.onGlobal = (code) => {
   if (game.state === 'loading') return;
   if (code === 'KeyM') hud.setSound(sfx.toggle());
-  else if (code === 'KeyR') startRound();
+  else if (code === 'KeyR') go();
   else if ((code === 'Enter' || code === 'NumpadEnter' || code === 'Space') && (game.state === 'title' || game.state === 'summary')) {
     // Enter and Space are also chef keys: do not let a mashed key skip the score screen
     if (game.state === 'summary' && performance.now() - game.sumAt < 1200) return;
-    startRound();
+    go();
   }
 };
-document.getElementById('play').addEventListener('click', (e) => { e.currentTarget.blur(); startRound(); });
-document.getElementById('again').addEventListener('click', (e) => { e.currentTarget.blur(); startRound(); });
+document.getElementById('play').addEventListener('click', (e) => { e.currentTarget.blur(); go(); });
+document.getElementById('again').addEventListener('click', (e) => { e.currentTarget.blur(); go(); });
 window.addEventListener('resize', () => { if (gfx) resize(); });
 window.addEventListener('beforeunload', (e) => {
   // Ctrl is a chef key, so Ctrl+W is one slip away: ask before closing mid-shift

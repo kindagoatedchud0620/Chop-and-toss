@@ -1,4 +1,4 @@
-"""Ingredients in every state and the three plated dishes. Smooth and bevelled. Origin = bottom centre."""
+"""Ingredients in every state and the plated dishes. Smooth and bevelled. Origin = bottom centre."""
 import math, random
 from kit import model, Part, glow, shade
 from stations import plate_shape
@@ -328,4 +328,69 @@ def dish_fishchips():
     p.prism(half, 0.04, (0.17, 0.09, 0.07), '#ffe14d', 'gloss', rot=(70, 0, -40), bevel=0.01, smooth=True, sharp=60)
     p.cyl(0.05, 0.05, (-0.175, -0.05, 0.058), '#ffffff', 'gloss', n=10, r2=0.058)
     p.cyl(0.048, 0.01, (-0.175, -0.05, 0.082), '#fff8dc', 'gloss', n=10)
+    p.done()
+
+
+@model('dish_salad')
+def dish_salad():
+    p = Part('dish_salad')
+    plate_shape(p, '#ffffff', '#f1f3f6')
+    rnd = random.Random(4)
+    greens = (LEAF_L, LEAF, LEAF_D, '#7fcf4a')
+    for i in range(16):  # ruffled heap of curled leaves, outer ring low, crown high
+        k = i / 15
+        a = i * 2.4
+        d = 0.15 * (1 - k) ** 0.8
+        sz = 0.12 * (1 - 0.4 * k)
+        p.sphere(sz, (d * math.cos(a), d * math.sin(a), 0.07 + 0.1 * k), greens[i % 4], 'satin',
+                 scale=(1, 0.3, 0.8), rot=(rnd.uniform(20, 60), 0, math.degrees(a) + 90), u=8, v=5)
+    # tomato wedges on top and around
+    for (x, y, z, a) in ((0.03, 0.02, 0.2, 40), (-0.07, 0.01, 0.15, 160), (0.17, -0.07, 0.06, 20), (-0.15, -0.13, 0.06, 250),
+                         (0.0, 0.2, 0.06, 95), (-0.19, 0.1, 0.06, 330)):
+        half = [(0.075 * math.cos(t), 0.075 * math.sin(t)) for t in [i * math.pi / 6 for i in range(7)]]
+        p.prism(half, 0.045, (x, y, z), TOM, 'gloss', rot=(70, 0, a), bevel=0.01, segs=1, smooth=True, sharp=60)
+        inner = [(0.058 * math.cos(t), 0.058 * math.sin(t) + 0.003) for t in [i * math.pi / 6 for i in range(7)]]
+        p.prism(inner, 0.049, (x, y, z), TOM_L, 'gloss', rot=(70, 0, a))
+    p.done()
+
+
+@model('dish_fishburger')
+def dish_fishburger():
+    p = Part('dish_fishburger')
+    plate_shape(p, '#ffffff', '#f1f3f6')
+    z = 0.032
+    bun_bottom(p, z, 0.15)
+    pts = []
+    for k in range(20):
+        t = k * 2 * math.pi / 20
+        rr = 0.165 * (1 + 0.1 * math.sin(6 * t))
+        pts.append((rr * math.cos(t), rr * math.sin(t)))
+    p.prism(pts, 0.026, (0, 0, z + 0.07), LEAF_L, 'satin', bevel=0.008, smooth=True, sharp=60)
+    fillet(p, GOLD, (0.03, 0.01, z + 0.085), 20, s=1.4, bumpy=True)  # ~0.5 long vs 0.3 bun
+    bun_top(p, z + 0.17, 0.15)
+    p.done()
+
+
+@model('dish_stew')
+def dish_stew():
+    p = Part('dish_stew')
+    plate_shape(p, '#ffffff', '#f1f3f6')
+    p.lathe([(0, 0.03), (0.11, 0.03), (0.2, 0.09), (0.225, 0.15), (0.235, 0.155), (0.215, 0.158), (0.19, 0.1),
+             (0, 0.07)], color='#ffffff', mat='gloss', n=18, smooth=True, sharp=50)
+    p.cyl(0.208, 0.012, (0, 0, 0.134), '#a8521e', 'gloss', n=18)
+    rnd = random.Random(8)
+    cols = ('#6b3a1f', '#f3dd8a', '#e5392b')
+    spots = [(0.0, 0.0), (0.09, 0.03), (-0.09, 0.05), (0.03, -0.1), (-0.06, -0.09), (0.12, -0.07), (-0.13, -0.02),
+             (0.05, 0.12), (-0.04, 0.13)]
+    for i, (x, y) in enumerate(spots):
+        c = cols[i % 3]
+        z = 0.145
+        if c == '#e5392b':
+            p.sphere(0.034, (x, y, z), c, 'gloss', scale=(1.1, 1, 0.7), u=8, v=6)
+        else:
+            p.box((0.07, 0.065, 0.06), (x, y, z), c, 'satin', rot=(rnd.uniform(-12, 12), rnd.uniform(-12, 12), rnd.uniform(0, 90)),
+                  bevel=0.014, segs=2, smooth=True, sharp=60)
+    for (x, y) in ((-0.02, 0.06), (0.1, -0.02), (-0.1, -0.06)):  # glossy highlights and a parsley fleck
+        p.sphere(0.014, (x, y, 0.142), '#ffb067', 'gloss', scale=(1.6, 1, 0.3), u=6, v=4)
+    p.sphere(0.03, (0.06, -0.02, 0.15), LEAF, 'satin', scale=(1.3, 0.65, 0.2), rot=(0, 0, 30), u=8, v=4)
     p.done()

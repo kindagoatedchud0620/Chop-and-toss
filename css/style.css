@@ -202,3 +202,9 @@ button:focus-visible { outline: calc(4 * var(--u)) solid var(--gold); outline-of
 
 .chips { display: flex; gap: calc(8 * var(--u)); margin-top: calc(14 * var(--u)); flex-wrap: wrap; }
 .chips span { font-family: var(--display); font-weight: 700; font-size: calc(12 * var(--u)); letter-spacing: 0.03em; padding: calc(7 * var(--u)) calc(13 * var(--u)); border-radius: 99px; background: var(--ink); color: var(--paper); }
+
+/* round-start menu strip under the countdown */
+#menustrip { display: flex; justify-content: center; gap: calc(14 * var(--u)); margin-top: calc(26 * var(--u)); }
+#menustrip div { display: grid; justify-items: center; width: calc(150 * var(--u)); padding: calc(6 * var(--u)) calc(8 * var(--u)) calc(10 * var(--u)); background: #fff; border-radius: calc(16 * var(--u)); border: calc(2.5 * var(--u)) solid rgba(27, 29, 42, 0.12); color: var(--ink); }
+#menustrip img { width: calc(84 * var(--u)); height: calc(84 * var(--u)); }
+#menustrip span { font-family: var(--display); font-weight: 700; font-size: calc(14 * var(--u)); text-align: center; }

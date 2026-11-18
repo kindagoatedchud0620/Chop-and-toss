@@ -15,9 +15,9 @@ Then open http://localhost:4921 (Node 18 or newer, no install step, no build ste
 | | Player 1 (cat, left) | Player 2 (raccoon, right) |
 |---|---|---|
 | Move | W A S D | Arrow keys |
-| Pick up, drop, plate | Space or Left Shift | Right Shift or Enter |
-| Chop, throw, wash, spray | E or Left Ctrl | / or Right Ctrl |
-| Dash | Q or Left Alt | . or Right Alt |
+| Pick up, drop, plate | Space | J |
+| Chop, throw, wash, spray | E | K |
+| Dash | Left Shift | L |
 
 `M` toggles sound (off by default). `R` restarts in a new random kitchen.
 

@@ -5,6 +5,7 @@ import { spawn, part } from './assets.js';
 const SPECS = {
   tomato: {}, bun: {}, meat: {}, lettuce: {}, fish: { yaw: 0.5 }, potato: {},
   dish_soup: { pad: 1.02 }, dish_burger: { pad: 1.02 }, dish_fishchips: { pad: 1.02 },
+  dish_salad: { pad: 1.02 }, dish_fishburger: { pad: 1.02 }, dish_stew: { pad: 1.02 },
   board: { yaw: -0.5 }, pot: { yaw: 0.2 }, pan: { yaw: 0.9 }, plate: {},
   chef_cat: { face: true }, chef_raccoon: { face: true },
 };
