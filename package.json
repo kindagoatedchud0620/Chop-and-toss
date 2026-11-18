@@ -14,6 +14,9 @@
     "test:audio": "node tools/audiotest.mjs",
     "perf": "node tools/perf.mjs",
     "stills": "node tools/stills.mjs",
-    "clip": "sh tools/clip-all.sh"
+    "clip": "sh tools/clip-all.sh",
+    "test:dishes": "node tools/dishtest.mjs && node tools/bottest.mjs",
+    "test:chop": "node tools/choptest.mjs",
+    "stills:v2": "node tools/stills-v2.mjs"
   }
 }

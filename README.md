@@ -1,6 +1,6 @@
 # CHOP & TOSS
 
-A chaotic 3D co-op cooking game for two chefs on one laptop keyboard. Each 3 minute shift drops you into one of four asymmetric kitchens. Chop, cook, plate and serve Tomato Soup, Classic Burgers and Fish & Chips as many times as you can.
+A chaotic 3D co-op cooking game for two chefs on one laptop keyboard. Each 3 minute shift drops you into one of four asymmetric kitchens. Every shift rolls a menu of 3 dishes out of 6, so no two shifts ask for the same food. Chop, cook, plate and serve them as many times as you can.
 
 ## Run it
 
@@ -21,6 +21,19 @@ Then open http://localhost:4921 (Node 18 or newer, no install step, no build ste
 
 `M` toggles sound (off by default). `R` restarts in a new random kitchen.
 
+## The six dishes (3 are rolled per shift)
+
+| Dish | Recipe |
+|---|---|
+| Tomato Soup | 3 chopped tomatoes boiled in a pot |
+| Classic Burger | bun + chopped meat fried in a pan + chopped lettuce |
+| Fish & Chips | chopped fish fried in a pan + chopped potato fried in a pan |
+| Garden Salad | chopped lettuce + chopped tomato, straight onto a plate |
+| Fish Burger | bun + chopped fish fried in a pan + chopped lettuce |
+| Hearty Stew | chopped meat + chopped potato + chopped tomato boiled together in a pot |
+
+The title screen shows the menu rolled for the next shift. R rolls a new kitchen and a new menu.
+
 ## The four kitchens
 
 1. **Split River Rafts**: prep on the left raft, cook on the right, throw everything across the river.
@@ -37,6 +50,7 @@ Then open http://localhost:4921 (Node 18 or newer, no install step, no build ste
 | `?bot` | both chefs are played by the AI (`?bot=1` or `?bot=2` for one AI partner) |
 | `?hold` | no real-time loop. Call `window.__step(n)` to advance n frames of 1/60 s and draw, `window.__sim(n)` to advance without drawing |
 | `?seed=N` | fixed random seed |
+| `?dishes=a,b,c` | force the menu: 3 distinct pool indices (0 soup, 1 burger, 2 fish & chips, 3 salad, 4 fish burger, 5 stew) |
 
 ## Project layout
 
@@ -70,6 +84,10 @@ With the server running:
 node tools/simtest.mjs all 1     # pure simulation, AI plays a full round on each map (no browser)
 node tools/prove.mjs             # headless Chrome: full rounds, forced fire, washing, random restarts
 node tools/keytest.mjs           # real key events for both players at once in the real-time loop
+node tools/choptest.mjs          # real E and K holds chop at the same time
+node tools/dishtest.mjs          # menu roll, pot rules and the three new dishes (no browser)
+node tools/bottest.mjs           # bot routing table and all six dishes served (no browser)
+node tools/simtest.mjs all 1 --menus   # every menu on every map with the AI (no browser)
 node tools/powcheck.mjs          # lists every pow() in every compiled shader
 node tools/perf.mjs              # frame rate, draw calls and triangles of the real-time loop
 node tools/audiotest.mjs         # sound code paths against a silent mock (no audio device)

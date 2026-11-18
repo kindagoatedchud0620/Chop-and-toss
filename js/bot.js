@@ -197,6 +197,7 @@ export class BotTeam {
     const w = this.w, c = b.chef, t = b.task, inp = c.input;
     switch (t.kind) {
       case 'wait': if (--t.frames <= 0) this.finish(b); return;
+      case 'step': { const left = this.goTo(b, t.cell); if (left < 0.25) this.finish(b); return; }
       case 'use': case 'work': {
         const tile = t.tile;
         if (tile.fire > 0 && !(t.grabExt)) return this.fail(b);
@@ -405,7 +406,20 @@ export class BotTeam {
       }
       return t;
     }
-    return null;
+    return this.offPortal(b);
+  }
+
+  /** idle right after a portal hop: step clear, a parked chef on the exit tile jams the partner's way through */
+  offPortal(b) {
+    const lock = b.chef.portalLock;
+    if (!lock) return null;
+    const f = this.fieldOf(b);
+    let best = null;
+    for (const cell of this.w.cells) {
+      const i = this.cellIdx(cell.gx, cell.gz), d = f.dist[i];
+      if (d < Infinity && !cell.portal && Math.hypot(cell.x - lock.x, cell.z - lock.z) > 1.3 && (!best || d < best.d)) best = { i, d };
+    }
+    return best && { kind: 'step', cell: best.i, ttl: 120, note: 'step off portal' };
   }
 
   // -- fire
@@ -821,7 +835,7 @@ export class BotTeam {
         const it = cmp.item;
         if (!it) continue;
         if (it.where.k === 'vessel' && it.where.tile.vessel.type === 'pan' && it.where.tile.vessel.progress > 0.45) want = true;
-        if ((it.where.k === 'tile' || it.where.k === 'floor' || it.where.k === 'belt') && w.plateReady(it)) want = true;
+        if ((it.where.k === 'tile' || it.where.k === 'floor' || it.where.k === 'belt') && w.plateReady(it) && !(it.state === 'chopped' && this.kindFor(p, it.type))) want = true;
       }
       if (!want) continue;
       const f = this.fetchPlate(b, p, 'early');
@@ -839,7 +853,7 @@ export class BotTeam {
       if (this.claimed(b, ptile) || !(this.reach(b, ptile) < Infinity)) continue;
       for (const cmp of p.comps) {
         const it = cmp.item;
-        if (!it || !w.plateReady(it) || !plateAccepts(p.plate.contents, it)) continue;
+        if (!it || !w.plateReady(it) || !plateAccepts(p.plate.contents, it) || (it.state === 'chopped' && this.kindFor(p, it.type))) continue;
         if (it.where.k === 'tile' && it.where.tile.fire <= 0 && this.reach(b, it.where.tile) < Infinity && !this.claimed(b, it.where.tile)) {
           const tile = it.where.tile;
           // carry whichever is closer to the other
@@ -888,6 +902,8 @@ export class BotTeam {
       else if (it.state === 'raw' && CHOPPABLE[it.type]) go = !!it.plan && w.tiles.some((t) => t.kind === 'board' && !t.item && this.reach(b, t) < Infinity);
       else if (it.state === 'chopped' && this.kindOf(it)) go = !!it.plan && !!this.cookTile(b, it);
       else if (w.plateReady(it) && (k === 'floor' || k === 'belt')) go = true;
+      // plate-ready food on my side of a gap while its plate waits on the cook's side: send it over (shortcut: only the non-cook does this, cook-side food stranded from the plate is not handled)
+      else if (w.plateReady(it) && this.roles.cook !== b.i && it.plan && it.plan.plate && it.plan.plate.where.k === 'tile' && !(this.reach(b, it.plan.plate.where.tile) < Infinity)) go = true;
       if (!go) continue;
       if (k === 'tile') {
         const tile = it.where.tile;
