@@ -4,10 +4,11 @@ import { launch } from './cdp.mjs';
 const c = await launch({ width: 1280, height: 720 });
 let pass = 0, fail = 0;
 const check = (name, ok, extra = '') => { ok ? pass++ : fail++; console.log(`${ok ? 'PASS' : 'FAIL'}  ${name} ${extra}`); };
+const DISHES_Q = process.env.DISHES || '3,4,5'; // new dishes by default; DISHES=0,1,2 for the originals
 const COUNT = `window.__ev = {}; { const v = window.game.view; const h = v.handle.bind(v); v.handle = (ev) => { const k = ev.type + (ev.type === 'serve' ? ':' + ev.dish : ''); window.__ev[k] = (window.__ev[k] || 0) + 1; h(ev); }; }`;
 
 for (const map of [0, 1, 2, 3]) {
-  await c.goto(`http://localhost:4921/?hold&start&bot&seed=${21 + map}&map=${map}`, 'window.__ready === true', 120000);
+  await c.goto(`http://localhost:4921/?hold&start&bot&seed=${21 + map}&map=${map}&dishes=${DISHES_Q}`, 'window.__ready === true', 120000);
   await c.eval(COUNT);
   // every map gets a neglected stove at 0:25 so a fire erupts and has to be dealt with
   const r = await c.eval(`(() => {
@@ -20,12 +21,13 @@ for (const map of [0, 1, 2, 3]) {
     }
     window.__render();
     const w = g.world;
-    return { state: g.state, name: w.map.name, score: w.score, stats: w.stats, ev: window.__ev, firesLeft: w.fireCount, maxFires, stars: g.lastStars, time: w.time, sumShown: !document.getElementById('summary').classList.contains('hidden') };
+    return { menu: w.menu, state: g.state, name: w.map.name, score: w.score, stats: w.stats, ev: window.__ev, firesLeft: w.fireCount, maxFires, stars: g.lastStars, time: w.time, sumShown: !document.getElementById('summary').classList.contains('hidden') };
   })()`);
   const s = r.stats.served, ev = r.ev;
-  console.log(`\n== ${r.name}: score ${r.score}, ${r.stars} stars | soup ${s.soup}, burger ${s.burger}, fish & chips ${s.fishchips} | washed ${r.stats.washed} | thrown ${r.stats.thrown}, caught ${r.stats.caught} | fires ignited ${ev.ignite || 0}, put out ${ev.extinguished || 0}, burning at end ${r.firesLeft} | missed ${r.stats.missed}${ev.teleport ? ' | teleports ' + ev.teleport : ''}${ev.islandMove ? ' | island slides ' + ev.islandMove : ''}`);
+  const served = Object.entries(s).filter(([, n]) => n > 0).map(([k, n]) => `${k} ${n}`).join(', ');
+  console.log(`\n== ${r.name}: score ${r.score}, ${r.stars} stars | menu ${r.menu.join('+')} | served ${served} | washed ${r.stats.washed} | thrown ${r.stats.thrown}, caught ${r.stats.caught} | fires ignited ${ev.ignite || 0}, put out ${ev.extinguished || 0}, burning at end ${r.firesLeft} | missed ${r.stats.missed}${ev.teleport ? ' | teleports ' + ev.teleport : ''}${ev.islandMove ? ' | island slides ' + ev.islandMove : ''}`);
   check('round ran the full 180 s and ended on the summary screen', r.state === 'summary' && Math.abs(r.time - 180) < 0.05 && r.sumShown);
-  check('all three dishes prepared, plated and served', s.soup > 0 && s.burger > 0 && s.fishchips > 0);
+  check('all three menu dishes prepared, plated and served', r.menu.length === 3 && r.menu.every((id) => s[id] > 0), `(${served})`);
   check('stove fire erupted and every fire was extinguished', (ev.ignite || 0) > 0 && (ev.extinguished || 0) >= (ev.ignite || 0) - r.firesLeft && r.firesLeft === 0, `(${ev.ignite || 0} ignited, ${ev.extinguished || 0} put out)`);
   check('dirty plates came back and were washed', r.stats.washed >= 3 && (ev.plateBack || 0) >= 3, `(${ev.plateBack || 0} returned, ${r.stats.washed} washed)`);
   if (map === 0) check('ingredients thrown across the river, some caught by the partner', r.stats.thrown > 10, `(${r.stats.thrown} throws, ${r.stats.caught} catches, ${ev.splash || 0} lost in the river)`);
@@ -37,7 +39,7 @@ for (const map of [0, 1, 2, 3]) {
 // random map selection: R on the title and in play, the button, and Enter on the summary
 await c.goto('http://localhost:4921/?hold&test', 'window.__ready === true', 120000);
 const seq = [];
-const cur = () => c.eval('window.game.world.map.id');
+const cur = () => c.eval('window.game.world.map.id + ":" + window.game.world.menu.join("+")');
 const title = await c.eval('({ state: window.game.state, shown: !document.getElementById("title").classList.contains("hidden"), best: document.getElementById("best").textContent })');
 check('title screen is shown first', title.state === 'title' && title.shown);
 await c.eval('document.getElementById("play").click()'); seq.push(await cur());
@@ -47,12 +49,13 @@ for (let i = 0; i < 30; i++) {
   await c.eval('window.__sim(8)');
   seq.push(await cur());
 }
-const counts = {};
-for (const id of seq) counts[id] = (counts[id] || 0) + 1;
+const maps = {}, menus = new Set(), dishes = new Set();
+for (const e of seq) { const [m, d] = e.split(':'); maps[m] = (maps[m] || 0) + 1; menus.add(d); d.split('+').forEach((x) => dishes.add(x)); }
 let repeats = 0;
-for (let i = 1; i < seq.length; i++) if (seq[i] === seq[i - 1]) repeats++;
-console.log('\nrestart sequence:', seq.join(' '));
-check('R rolls a new random kitchen each time, all four maps appear', Object.keys(counts).length === 4 && repeats === 0, JSON.stringify(counts));
+for (let i = 1; i < seq.length; i++) if (seq[i].split(':')[0] === seq[i - 1].split(':')[0]) repeats++;
+console.log('\nrestart sequence (map:menu):\n' + seq.join('\n'));
+check('R rolls a new random kitchen each time, all four maps appear', Object.keys(maps).length === 4 && repeats === 0, JSON.stringify(maps));
+check('R rolls a new random 3-dish menu: many different menus, all 6 dishes show up', menus.size >= 10 && dishes.size === 6 && [...menus].every((m) => new Set(m.split('+')).size === 3), `(${menus.size} distinct menus in ${seq.length} rolls, ${dishes.size} of 6 dishes)`);
 const start = await c.eval(`(() => { window.__sim(200); const w = window.game.world; return { state: window.game.state, tickets: w.tickets.length, d: Math.abs(w.chefs[0].x - w.chefs[1].x), plates: w.tiles.reduce((n, t) => n + (t.item && t.item.kind === 'plate' && !t.item.dirty ? t.item.count : 0), 0), left: w.timeLeft }; })()`);
 check('round starts with 3 tickets, 4 clean plates, chefs on opposite sides', start.state === 'play' && start.tickets === 3 && start.plates === 4 && start.d > 6, JSON.stringify(start));
 const errs = [...new Set(c.errors.filter((e) => !e.includes('favicon')))];

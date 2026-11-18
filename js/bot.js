@@ -1,5 +1,5 @@
 // Two-chef AI. Drives the same inputs a player would (move, pick, act). No rendering, no DOM.
-import { TUNE, DISHES, CHOPPABLE, POT_OK, PAN_OK, dishOfContents, plateAccepts } from './data.js';
+import { TUNE, DISHES, CHOPPABLE, PAN_OK, POT_RECIPES, dishOfContents, plateAccepts } from './data.js';
 
 const D4 = [[0, 1], [1, 0], [0, -1], [-1, 0]];
 const D8 = [[0, 1, 1], [1, 0, 1], [0, -1, 1], [-1, 0, 1], [1, 1, 1.42], [1, -1, 1.42], [-1, 1, 1.42], [-1, -1, 1.42]];
@@ -313,7 +313,7 @@ export class BotTeam {
       if (p.plate && p.plate.where.k === 'gone') p.dead = true;
       if (p.plate && (p.plate.dirty || p.plate.count > 1)) { p.plate.plan = null; p.plate = null; }
       if (p.pot && (p.pot.vessel.state === 'burnt')) { /* comps are gone, they reset below */ }
-      const souped = p.dish === 'soup' && p.plate && p.plate.contents.some((x) => x.type === 'soup');
+      const souped = p.pot && p.plate && p.plate.contents.some((x) => x.type === p.dish);
       for (const cmp of p.comps) {
         const it = cmp.item;
         if (!it) continue;
@@ -336,16 +336,18 @@ export class BotTeam {
       if (this.plans.length >= MAX_PLANS) break;
       if (taken.has(tk)) continue;
       const p = { id: this.planSeq++, dish: tk.dish, ticket: tk, comps: [], plate: null, pot: null, plateClaim: -1 };
-      if (tk.dish === 'soup') {
-        const pots = w.tiles.filter((t) => t.kind === 'stove' && t.vessel.type === 'pot' && !t.planRef && t.vessel.state !== 'burnt' && t.fire <= 0);
+      const recipe = POT_RECIPES[tk.dish];
+      if (recipe) {
+        // soup and stew each own a pot; with one pot the second waits until it frees (shortcut: a pot left holding another recipe's items blocks until that dish is ordered again)
+        const fits = (v) => { const left = recipe.slice(); return v.items.every((x) => { const k = left.indexOf(x.type); if (k < 0) return false; left.splice(k, 1); return true; }); };
+        const pots = w.tiles.filter((t) => t.kind === 'stove' && t.vessel.type === 'pot' && !t.planRef && t.vessel.state !== 'burnt' && t.fire <= 0 && fits(t.vessel));
         if (!pots.length) continue;
         pots.sort((a, c) => c.vessel.items.length - a.vessel.items.length);
         p.pot = pots[0]; p.pot.planRef = p;
-        p.comps = [{ type: 'tomato', item: null }, { type: 'tomato', item: null }, { type: 'tomato', item: null }];
-        const inPot = p.pot.vessel.items.filter((x) => x.type === 'tomato');
-        inPot.forEach((x, i) => { if (p.comps[i]) { p.comps[i].item = x; x.plan = p; } });
+        p.comps = recipe.map((type) => ({ type, item: null }));
+        for (const x of p.pot.vessel.items) { const cmp = p.comps.find((m) => m.type === x.type && !m.item); if (cmp) { cmp.item = x; x.plan = p; } }
       } else if (tk.dish === 'burger') p.comps = [{ type: 'meat', item: null }, { type: 'lettuce', item: null }, { type: 'bun', item: null }];
-      else p.comps = [{ type: 'fish', item: null }, { type: 'potato', item: null }];
+      else p.comps = DISHES[tk.dish].needs.map((k) => ({ type: k.split(':')[0], item: null }));
       taken.add(tk);
       this.plans.push(p);
     }
@@ -363,7 +365,7 @@ export class BotTeam {
       for (const cmp of p.comps) {
         if (cmp.item) continue;
         const cand = items.find((x) => x.kind === 'ing' && x.type === cmp.type && !x.plan && x.state !== 'burnt' && x.where.k !== 'gone' && x.where.k !== 'plate' &&
-          !(x.where.k === 'vessel' && cmp.type === 'tomato' && x.where.tile !== p.pot) && !(cmp.type === 'tomato' && x.state === 'cooked'));
+          !(x.where.k === 'vessel' && (p.pot ? x.where.tile !== p.pot : x.where.tile.vessel.type === 'pot')) && !(p.pot && x.state === 'cooked'));
         if (cand) { cmp.item = cand; cand.plan = p; }
       }
     }
@@ -501,14 +503,10 @@ export class BotTeam {
       if (best) return this.use(best.t, 'to board');
       return { kind: 'wait', frames: 12, note: 'wait for board' };
     }
-    if (h.state === 'chopped' && POT_OK[h.type]) {
-      const pot = this.potFor(h);
-      if (pot) { const r = this.route(b, h, pot); if (r) return r; }
-      return this.park(b, h);
-    }
-    if (h.state === 'chopped' && PAN_OK[h.type]) {
-      const pan = this.panFor(b, h);
-      if (pan) { const r = this.route(b, h, pan); if (r) { h.dest = pan; return r; } }
+    const kind = this.kindOf(h);
+    if (h.state === 'chopped' && kind) {
+      const dest = this.cookTile(b, h);
+      if (dest) { const r = this.route(b, h, dest); if (r) { if (kind === 'pan') h.dest = dest; return r; } }
       return this.park(b, h);
     }
     if (w.plateReady(h)) {
@@ -536,6 +534,15 @@ export class BotTeam {
     b.parkT = 0;
     return this.putDown(b, 'park ' + h.type);
   }
+
+  /** where a held ingredient is cooked: 'pot', 'pan' or null (goes straight to the plate) */
+  kindOf(h) {
+    return h.plan ? this.kindFor(h.plan, h.type) : PAN_OK[h.type] ? 'pan' : null;
+  }
+
+  kindFor(p, type) { return POT_RECIPES[p.dish] ? 'pot' : DISHES[p.dish].needs.includes(`${type}:cooked`) ? 'pan' : null; }
+
+  cookTile(b, h) { const k = this.kindOf(h); return k === 'pot' ? this.potFor(h) : k === 'pan' ? this.panFor(b, h) : null; }
 
   potFor(h) {
     const w = this.w;
@@ -698,8 +705,8 @@ export class BotTeam {
   readyFor(p, b) {
     const w = this.w, out = [];
     if (!p.plate) return out;
-    if (p.dish === 'soup') {
-      if (p.pot && p.pot.vessel.state === 'done' && p.pot.fire <= 0) { const d = this.reach(b, p.pot); if (d < Infinity) out.push({ tile: p.pot, d, valid: () => p.pot.vessel.state === 'done' }); }
+    if (p.pot) {
+      if (p.pot.vessel.state === 'done' && p.pot.fire <= 0) { const d = this.reach(b, p.pot); if (d < Infinity) out.push({ tile: p.pot, d, valid: () => p.pot.vessel.state === 'done' }); }
       return out;
     }
     for (const cmp of p.comps) {
@@ -879,8 +886,7 @@ export class BotTeam {
       let go = false;
       if (it.type === 'charcoal') go = true;
       else if (it.state === 'raw' && CHOPPABLE[it.type]) go = !!it.plan && w.tiles.some((t) => t.kind === 'board' && !t.item && this.reach(b, t) < Infinity);
-      else if (it.state === 'chopped' && POT_OK[it.type]) go = !!this.potFor(it);
-      else if (it.state === 'chopped' && PAN_OK[it.type]) go = !!it.plan && !!this.panFor(b, it);
+      else if (it.state === 'chopped' && this.kindOf(it)) go = !!it.plan && !!this.cookTile(b, it);
       else if (w.plateReady(it) && (k === 'floor' || k === 'belt')) go = true;
       if (!go) continue;
       if (k === 'tile') {
@@ -949,8 +955,7 @@ export class BotTeam {
       if (it.kind !== 'ing' || it.state === 'raw') continue;
       if (!(this.reach(b, t) < Infinity)) continue;
       let ok = true;
-      if (it.state === 'chopped' && POT_OK[it.type]) ok = !!this.potFor(it);
-      else if (it.state === 'chopped' && PAN_OK[it.type]) ok = !!this.panFor(b, it);
+      if (it.state === 'chopped' && this.kindOf(it)) ok = !!this.cookTile(b, it);
       const boardsFree = w.tiles.some((x) => x.kind === 'board' && !x.item && this.reach(b, x) < Infinity);
       if (!ok && boardsFree) continue;
       return this.use(t, 'take chopped ' + it.type, { claims: [t, it] });
@@ -976,15 +981,15 @@ export class BotTeam {
     const pans = w.tiles.filter((t) => t.kind === 'stove' && t.vessel.type === 'pan').length;
     // pan-bound food already on its way
     let panLoad = 0;
-    for (const it of this.items) if (it.kind === 'ing' && PAN_OK[it.type] && it.state !== 'cooked' && it.where.k !== 'gone' && it.where.k !== 'plate') panLoad++;
+    for (const it of this.items) if (it.kind === 'ing' && this.kindOf(it) === 'pan' && it.state !== 'cooked' && it.where.k !== 'gone' && it.where.k !== 'plate') panLoad++;
     for (const t of w.tiles) if (t.kind === 'stove' && t.vessel.type === 'pan' && t.vessel.state === 'done') panLoad++;
     const boardFree = w.tiles.some((t) => t.kind === 'board' && !t.item && t.fire <= 0 && this.reach(b, t) < Infinity && !this.claimed(b, t));
     for (const p of this.plans) {
       if (this.planComplete(p)) continue;
       for (const cmp of p.comps) {
         if (cmp.item || cmp.claim === this.other(b).i) continue;
-        if (PAN_OK[cmp.type] && panLoad >= pans + 1) continue;
-        if (cmp.type === 'tomato' && (!p.pot || p.pot.vessel.state === 'burnt' || p.pot.fire > 0)) continue;
+        if (this.kindFor(p, cmp.type) === 'pan' && panLoad >= pans + 1) continue;
+        if (p.pot && (p.pot.vessel.state === 'burnt' || p.pot.fire > 0)) continue;
         if (CHOPPABLE[cmp.type] && !boardFree) continue;
         const crate = w.tiles.find((t) => t.kind === 'crate' && t.ctype === cmp.type);
         if (!crate || !(this.reach(b, crate) < Infinity) || this.isBad(b, crate)) continue;

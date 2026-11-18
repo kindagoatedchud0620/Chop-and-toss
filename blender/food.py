@@ -125,8 +125,8 @@ def potato():
 
 
 # ---- chopped -----------------------------------------------------------------
-def tomato_pieces(p, z=0.0, s=1.0):
-    for (x, y, a, tilt) in ((-0.09, 0.03, 20, 62), (0.07, 0.06, 150, 64), (0.02, -0.08, 265, 60)):
+def tomato_pieces(p, z=0.0, s=1.0, spots=((-0.09, 0.03, 20, 62), (0.07, 0.06, 150, 64), (0.02, -0.08, 265, 60))):
+    for (x, y, a, tilt) in spots:
         half = [(0.13 * s * math.cos(t), 0.13 * s * math.sin(t)) for t in [i * math.pi / 8 for i in range(9)]]
         p.prism(half, 0.07 * s, (x * s, y * s, z + 0.05 * s), TOM, 'gloss', rot=(tilt, 0, a), bevel=0.016 * s, segs=2,
                 smooth=True, sharp=60)
@@ -206,7 +206,7 @@ def fillet(p, col, loc=(0, 0, 0), rot=0, s=1.0, skin=None, bumpy=False, mat='sat
         rnd = random.Random(21)
         ca, sa = math.cos(math.radians(rot)), math.sin(math.radians(rot))
         for i in range(9):
-            u = rnd.uniform(-0.15, 0.15) * s
+            u = rnd.uniform(-0.15, 0.1) * s
             v = rnd.uniform(-0.045, 0.045) * s
             p.sphere(0.03 * s, (x + u * ca - v * sa, y + u * sa + v * ca, z + 0.068 * s), shade(GOLD, rnd.uniform(0.9, 1.12)),
                      mat, scale=(1.2, 1, 0.55), u=6, v=4)
@@ -344,13 +344,7 @@ def dish_salad():
         sz = 0.12 * (1 - 0.4 * k)
         p.sphere(sz, (d * math.cos(a), d * math.sin(a), 0.07 + 0.1 * k), greens[i % 4], 'satin',
                  scale=(1, 0.3, 0.8), rot=(rnd.uniform(20, 60), 0, math.degrees(a) + 90), u=8, v=5)
-    # tomato wedges on top and around
-    for (x, y, z, a) in ((0.03, 0.02, 0.2, 40), (-0.07, 0.01, 0.15, 160), (0.17, -0.07, 0.06, 20), (-0.15, -0.13, 0.06, 250),
-                         (0.0, 0.2, 0.06, 95), (-0.19, 0.1, 0.06, 330)):
-        half = [(0.075 * math.cos(t), 0.075 * math.sin(t)) for t in [i * math.pi / 6 for i in range(7)]]
-        p.prism(half, 0.045, (x, y, z), TOM, 'gloss', rot=(70, 0, a), bevel=0.01, segs=1, smooth=True, sharp=60)
-        inner = [(0.058 * math.cos(t), 0.058 * math.sin(t) + 0.003) for t in [i * math.pi / 6 for i in range(7)]]
-        p.prism(inner, 0.049, (x, y, z), TOM_L, 'gloss', rot=(70, 0, a))
+    tomato_pieces(p, 0.065, 0.92, ((0.1, 0.03, 200, 62), (-0.02, 0.1, 290, 64), (-0.1, -0.03, 20, 62), (0.03, -0.1, 110, 64)))
     p.done()
 
 
@@ -366,8 +360,14 @@ def dish_fishburger():
         rr = 0.165 * (1 + 0.1 * math.sin(6 * t))
         pts.append((rr * math.cos(t), rr * math.sin(t)))
     p.prism(pts, 0.026, (0, 0, z + 0.07), LEAF_L, 'satin', bevel=0.008, smooth=True, sharp=60)
-    fillet(p, GOLD, (0.03, 0.01, z + 0.085), 20, s=1.4, bumpy=True)  # ~0.5 long vs 0.3 bun
-    bun_top(p, z + 0.17, 0.15)
+    fs = 1.28  # fillet ~0.48 long vs 0.3 bun: even overhang each side; 0.042*fs recentres the asymmetric outline
+    fillet(p, GOLD, (0.042 * fs, 0, z + 0.075), 0, s=fs, skin='#d9962a', bumpy=True)
+    rnd = random.Random(6)
+    for i in range(26):  # extra small crumb bumps
+        u, v = 0.054 + rnd.uniform(-0.13, 0.13), rnd.uniform(-0.05, 0.05)
+        p.sphere(0.017, (u, v, z + 0.075 + 0.08 * fs * (1 - 0.5 * (v / 0.07) ** 2) - 0.004), shade(GOLD, rnd.uniform(0.88, 1.1)),
+                 'satin', scale=(1.2, 1, 0.6), u=5, v=3)
+    bun_top(p, z + 0.178, 0.15)
     p.done()
 
 
