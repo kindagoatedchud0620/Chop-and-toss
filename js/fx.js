@@ -242,8 +242,8 @@ export class Fx {
     if (this.confetti) return;
     const flat = (w, h) => new THREE.PlaneGeometry(w, h); // shortcut: plain quads until fx_confetti / fx_ticket models exist
     const mat = () => new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide });
-    this.confetti = new Pool(this.scene, models.fx_confetti ? geoOf('fx_confetti') : flat(0.6, 0.36), mat(), 700);
-    this.tickets = new Pool(this.scene, models.fx_ticket ? geoOf('fx_ticket') : flat(0.5, 0.8), mat(), 160);
+    this.confetti = new Pool(this.scene, models.fx_confetti ? geoOf('fx_confetti') : flat(0.6, 0.36), mat(), 1100);
+    this.tickets = new Pool(this.scene, models.fx_ticket ? geoOf('fx_ticket') : flat(0.5, 0.8), mat(), 260);
     this.pools.push(this.confetti, this.tickets);
   }
   stopConfetti() {
@@ -256,9 +256,9 @@ export class Fx {
     const R = (a, b) => a + Math.random() * (b - a);
     for (let i = 0; i < n + nt; i++) {
       const tk = i >= n, u = Math.random();
-      const col = tk ? [1.6, 1.15, 0.5] : u < 0.04 ? [3.0, 2.8, 2.2] : u < 0.26 ? [2.4, 0.6, 0.08] : [R(1.8, 2.6), R(1.0, 1.4), R(0.04, 0.2)];
+      const col = tk ? [2.2, 1.7, 0.8] : u < 0.05 ? [4.0, 3.6, 2.6] : u < 0.26 ? [4.0, 1.2, 0.1] : [R(3.2, 4.4), R(1.9, 2.6), R(0.1, 0.3)];
       (tk ? this.tickets : this.confetti).spawn({
-        x: R(x0, x1), y: R(y0, y1), z: R(z0, z1), vx: R(-0.4, 0.4), vy: -R(0.5, 1.5), vz: R(-0.4, 0.4), life: 30, s0: tk ? 0.42 : R(0.16, 0.26), s1: tk ? 0.42 : 0.2,
+        x: R(x0, x1), y: R(y0, y1), z: R(z0, z1), vx: R(-0.4, 0.4), vy: -R(0.5, 1.5), vz: R(-0.4, 0.4), life: 30, s0: tk ? 1.05 : R(0.35, 0.57), s1: tk ? 1.05 : 0.44,
         grav: R(2.0, 3.0), drag: 1, flutter: R(1.5, 3), spin: R(3, 5), sink: 0.3, inT: 0, r: col[0], g: col[1], b: col[2],
       });
     }

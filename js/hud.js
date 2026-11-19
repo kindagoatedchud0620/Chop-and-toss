@@ -249,17 +249,17 @@ export class Hud {
     sum.classList.remove('record');
     sum.removeAttribute('data-phase');
     this.phase = '';
-    $('sum-shake').className = '';
+    $('sum-shake').classList.remove('thump', 'quake');
     $('sum-rows').innerHTML = '';
     $('stars').innerHTML = '';
     $('sum-score').textContent = '0';
     $('sum-best').textContent = '';
-    $('sum-best').className = '';
+    $('sum-best').classList.remove('in');
     $('sum-foot').innerHTML = '';
-    $('sum-foot').className = '';
+    $('sum-foot').classList.remove('in');
     $('sum-oldbest').innerHTML = '0';
-    $('sum-oldbest').className = '';
-    $('sum-bestcard').className = '';
-    $('sum-banner').className = '';
+    $('sum-oldbest').classList.remove('pop');
+    $('sum-bestcard').classList.remove('show', 'gold');
+    $('sum-banner').classList.remove('show', 'live');
   }
 }

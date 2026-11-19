@@ -479,7 +479,7 @@ export class View {
     const w = this.world, cs = w.chefs;
     const mid = this.stagePoint((cs[0].x + cs[1].x) / 2, (cs[0].z + cs[1].z) / 2);
     // the standard ending keeps the normal look-at (no stage) and only pulls back
-    this.end = record ? { record, t: 0, dur: 1.6, mult: 0.5, shift: 0.2, stage: mid, rain: 0 } : { record, t: 0, dur: 1.4, mult: 1.14, shift: 0.19, stage: null };
+    this.end = record ? { record, t: 0, dur: 1.6, mult: 0.5, shift: 0.2, stage: mid, rain: 0 } : { record, t: 0, dur: 1.4, mult: 1.25, shift: 0.10, stage: null };
     this.chefViews.forEach((cv, i) => {
       cv.at = { x: cv.c.x, z: cv.c.z, face: cv.c.face, f0: cv.c.face };
       if (!record) {
@@ -524,9 +524,9 @@ export class View {
     if (!e.record) return;
     // confetti: a burst over the stage, then a steady rain over the whole kitchen
     const w = this.world, hw = w.W / 2, hh = w.H / 2;
-    if (e.rain === 0 && e.t >= 0.3) { e.rain = 1; fx.rain(260, 30, e.stage.x - 2.5, e.stage.x + 2.5, e.stage.z - 2, e.stage.z + 2, 1.5, 8); }
+    if (e.rain === 0 && e.t >= 0.3) { e.rain = 1; fx.rain(400, 45, e.stage.x - 2.5, e.stage.x + 2.5, e.stage.z - 2, e.stage.z + 2, 1.5, 8); }
     if (e.rain) {
-      e.cf = (e.cf || 0) + dt * 120; e.tk = (e.tk || 0) + dt * 14;
+      e.cf = (e.cf || 0) + dt * 190; e.tk = (e.tk || 0) + dt * 22;
       const n = Math.floor(e.cf), nt = Math.floor(e.tk);
       e.cf -= n; e.tk -= nt;
       fx.rain(n, nt, -hw, hw, -hh, hh, 9, 13);
