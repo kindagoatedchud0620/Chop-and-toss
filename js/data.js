@@ -28,6 +28,12 @@ export const TUNE = {
   ticketGap: 17,
   missPenalty: 30,
   tipMax: 40,
+  tugStep: 0.10,           // VS: bar shift per served ticket
+  tugVip: 0.30,
+  stunTime: 1.5,
+  stunImmune: 1.0,         // after a stun ends
+  vsDashCooldown: 3.0,
+  vipEvery: 40,            // VS: a ticket turns VIP every 40 s
 };
 
 export const INGREDIENTS = ['tomato', 'bun', 'meat', 'lettuce', 'fish', 'potato'];
@@ -108,7 +114,8 @@ export function dishOfContents(contents) {
    .  floor            #  counter          W  wall (blocks throws)     ~  river (throw over it)
    T M F L P B  crates: tomato, meat, fish, lettuce, potato, bun
    c  chopping board   o  stove + pot      n  stove + pan
-   S s  sink (two tiles)        H h  serving hatch (two tiles)
+   S s  sink (two tiles)        H h  serving hatch (two tiles)    G g  VS only: Player 2's hatch (H h is Player 1's)
+   vsRows replaces rows in VS mode (two hatches, a full kitchen for each chef)
    R  plate return     X  trash bin        p  counter with clean plates       e  counter with extinguisher
    1 2  chef spawns    u U  blue portal pair      v V  orange portal pair
    > <  conveyor belt tiles (direction of travel)
@@ -128,6 +135,17 @@ export const MAPS = [
       'P.....~~~o....e',
       '#.....~~~#....#',
       '#MccB#~~~#Ss###',
+    ],
+    vsRows: [
+      '#TcML#~~~#FPcB#',
+      '#.....~~~.....#',
+      '#.............#',
+      'H....o~~~n....G',
+      'h.1..n~~~o..2.g',
+      '#.....~~~.....#',
+      'p.............p',
+      '#.....~~~.....#',
+      '#Ssc##~~~#ecXR#',
     ],
     theme: {
       bg: 0x2d7fa6, ground: null, floor: 'raft', floorA: 0xffffff, floorB: 0xf1dcc0, cab: 0x2f9a86, top: 0xffeed4,
@@ -149,6 +167,17 @@ export const MAPS = [
       '#.....vWV.....#',
       '##Ss###W#######',
     ],
+    vsRows: [
+      '#TMFc##W##cBPL#',
+      '#.....uWU.....#',
+      'H.....eW#.....G',
+      'h.....#W#.....g',
+      'p.1...oWo...2.p',
+      'S.....nWn.....R',
+      's.....cWc.....X',
+      '#.....vWV.....#',
+      '#######W#######',
+    ],
     theme: {
       bg: 0x191530, ground: 0x241f44, floor: 'tile', floorA: 0x8a84b8, floorB: 0x6f6aa0, cab: 0x7a54c9, top: 0xe9e2ff,
       wall: 0x6a6790, fog: 0x191530, hemiSky: 0xb9a8ff, hemiGround: 0x3a2f66, keyColor: 0xffe2c4,
@@ -168,6 +197,15 @@ export const MAPS = [
       '#pp#Hh#R#X#e###',
     ],
     island: { row: 3, xA: 2, xB: 4, cells: 'cno#c#onc', period: 12, slide: 1.5 },
+    vsRows: [
+      '#TMF#p###p#BPL#',
+      '#.............#',
+      '#.1.........2.#',
+      '#IIIIIIIIIIIII#',
+      '#.............#',
+      '#.............#',
+      '#Ss#Hh#R#gG#eX#',
+    ],
     theme: {
       bg: 0x3a251c, ground: 0x6b4630, floor: 'tile', floorA: 0xf4e3c6, floorB: 0xc9603f, cab: 0x2d5fae, top: 0xfff3dc,
       wall: 0xc9a27a, fog: 0x3a251c, hemiSky: 0xffe9cf, hemiGround: 0x7a5238, keyColor: 0xffe0b5,
@@ -187,6 +225,17 @@ export const MAPS = [
       'B......W......H',
       '#......X......h',
       '#Ss<<<<<<<<<<R#',
+    ],
+    vsRows: [
+      '#<<<<<<e>>>>>>#',
+      'T.............L',
+      'M...o..X..o...P',
+      'F.............B',
+      'p.1.cc...cc.2.p',
+      'H.............G',
+      'h...n..W..n...g',
+      '#.............#',
+      '#Ss<<<<R>>>>sS#',
     ],
     theme: {
       bg: 0x1c232b, ground: 0x2c3540, floor: 'tile', floorA: 0x9fb0bd, floorB: 0x7f909d, cab: 0xf2b632, top: 0xe8edf2,

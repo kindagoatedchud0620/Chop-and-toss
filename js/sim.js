@@ -3,12 +3,17 @@ import { TUNE, DT, ROUND_TIME, MAPS, DISHES, DISH_IDS, CHOPPABLE, PAN_OK, CRATE_
 
 const DIRS = [[0, 1], [1, 0], [0, -1], [-1, 0]]; // S, E, N, W  (rot index = facing)
 const angDiff = (a, b) => { let d = a - b; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI; return d; };
+const EPS = 1e-6;
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 let NEXT_ID = 1;
 
 export class World {
-  constructor(mapIndex, seed = 1, menu = null) {
+  constructor(mapIndex, seed = 1, menu = null, opts = {}) {
     this.mapIndex = mapIndex;
+    this.mode = opts.mode === 'vs' ? 'vs' : 'coop';
+    this.tug = 0.5;                // VS: Player 1's share of the tug-of-war bar
+    this.result = null;            // VS: { winner: 0|1|-1, ko }
+    this.nextVip = TUNE.vipEvery;
     this.map = MAPS[mapIndex];
     this.rng = makeRng(seed * 7919 + mapIndex * 104729 + 13);
     this.menu = menu || this.rollMenu();
@@ -19,11 +24,14 @@ export class World {
     this.score = 0;
     this.streak = 0;
     this.stats = { served: Object.fromEntries(DISH_IDS.map((id) => [id, 0])), base: 0, tips: 0, missed: 0, bestStreak: 0, wrong: 0, fires: 0, washed: 0, thrown: 0, caught: 0 };
+    if (this.mode === 'vs') this.stats.vs = [0, 1].map(() => ({ served: 0, vip: 0, stuns: 0, knocked: 0 }));
     this.tickets = [];
     this.ticketSpawn = 0;
     this.ticketExtra = 0;
     this.bag = [];
     this.returns = [];
+    this.returnBelts = [];
+    this.returnN = 0;
     this.flights = [];
     this.loose = [];
     this.tiles = [];
@@ -47,7 +55,8 @@ export class World {
   cell(gx, gz) { return gx < 0 || gz < 0 || gx >= this.W || gz >= this.H ? null : this.cells[gz * this.W + gx]; }
 
   build() {
-    const rows = this.map.rows;
+    const vs = this.mode === 'vs';
+    const rows = vs && this.map.vsRows ? this.map.vsRows : this.map.rows;
     this.H = rows.length; this.W = rows[0].length;
     this.cells = [];
     const spawns = [];
@@ -79,8 +88,8 @@ export class World {
       }
     }
     // island of sliding counters
-    if (this.map.island) {
-      const d = this.map.island;
+    const d = vs && this.map.vsIsland ? this.map.vsIsland : this.map.island;
+    if (d) {
       const isl = { row: d.row, xA: d.xA, xB: d.xB, x0: d.xA, at: 'A', timer: d.period, period: d.period, slide: d.slide, sliding: 0, tiles: [], vx: 0 };
       [...d.cells].forEach((ch, i) => {
         const t = this.makeTile(ch, d.xA + i, d.row);
@@ -100,8 +109,8 @@ export class World {
     }
     // two-tile stations
     for (const t of this.tiles) {
-      if (t.ch === 'S' || t.ch === 'H') {
-        const want = t.ch === 'S' ? 's' : 'h';
+      const want = { S: 's', H: 'h', G: 'g' }[t.ch];
+      if (want) {
         let other = null;
         for (const [dx, dz] of DIRS) {
           const n = this.cell(t.gx + dx, t.gz + dz);
@@ -112,7 +121,7 @@ export class World {
         let rot = t.rot;
         if (horiz && (rot === 1 || rot === 3)) rot = other.rot === 0 || other.rot === 2 ? other.rot : 0;
         if (!horiz && (rot === 0 || rot === 2)) rot = other.rot === 1 || other.rot === 3 ? other.rot : 1;
-        const st = { kind: t.kind, tiles: [t, other], x: (t.x + other.x) / 2, z: (t.z + other.z) / 2, rot, dirty: 0, clean: 0, progress: 0, busy: 0, flash: 0 };
+        const st = { kind: t.kind, tiles: [t, other], x: (t.x + other.x) / 2, z: (t.z + other.z) / 2, rot, owner: t.kind === 'hatch' && vs ? (t.ch === 'G' ? 1 : 0) : -1, dirty: 0, clean: 0, progress: 0, busy: 0, flash: 0 };
         t.station = st; other.station = st; t.rot = rot; other.rot = rot;
         (t.kind === 'sink' ? this.sinks : this.hatches).push(st);
       }
@@ -139,8 +148,9 @@ export class World {
     this.returnTile = this.tiles.find((t) => t.kind === 'return');
     for (const b of this.belts) {
       const first = b.tiles[0];
-      if (this.returnTile && Math.abs(first.gx - this.returnTile.gx) + Math.abs(first.gz - this.returnTile.gz) === 1) { b.returnTile = this.returnTile; this.returnBelt = b; }
+      if (this.returnTile && Math.abs(first.gx - this.returnTile.gx) + Math.abs(first.gz - this.returnTile.gz) === 1) { b.returnTile = this.returnTile; this.returnBelts.push(b); }
     }
+    this.returnBelt = this.returnBelts[0] || null;
     // starting plates: 4 clean plates split over the 'p' counters
     const pc = this.tiles.filter((t) => t.ch === 'p');
     const total = 4;
@@ -155,7 +165,7 @@ export class World {
       const s = spawns[i];
       this.chefs.push({
         idx: i, x: s.x, z: s.z, vx: 0, vz: 0, face: i === 0 ? Math.PI / 2 : -Math.PI / 2, held: null, target: null, work: null,
-        dashT: 0, dashCd: 0, dashX: 0, dashZ: 0, spraying: false, portalLock: null, bump: 0, catchPop: 0, throwPop: 0, moving: 0,
+        stun: 0, stunImmune: 0, dashT: 0, dashCd: 0, dashX: 0, dashZ: 0, spraying: false, portalLock: null, bump: 0, catchPop: 0, throwPop: 0, moving: 0,
         input: { mx: 0, mz: 0, pick: false, act: false, actHeld: false, dash: false },
       });
     }
@@ -172,7 +182,7 @@ export class World {
     else if (ch === 'c') t.kind = 'board';
     else if (ch === 'o' || ch === 'n') { t.kind = 'stove'; t.vessel = { type: ch === 'o' ? 'pot' : 'pan', items: [], progress: 0, burn: 0, state: 'idle' }; }
     else if (ch === 'S' || ch === 's') t.kind = 'sink';
-    else if (ch === 'H' || ch === 'h') t.kind = 'hatch';
+    else if (ch === 'H' || ch === 'h' || ch === 'G' || ch === 'g') t.kind = 'hatch';
     else if (ch === 'R') t.kind = 'return';
     else if (ch === 'X') t.kind = 'trash';
     else if (ch === '>' || ch === '<') t.kind = 'belt';
@@ -268,7 +278,7 @@ export class World {
     if (this.phase === 'play') {
       this.time += dt;
       this.timeLeft -= dt;
-      if (this.timeLeft <= 0) { this.timeLeft = 0; this.phase = 'over'; this.emit('timeup'); for (const c of this.chefs) { c.work = null; c.spraying = false; } return; }
+      if (this.timeLeft <= 0) { this.timeLeft = 0; this.phase = 'over'; this.timeUp(); for (const c of this.chefs) { c.work = null; c.spraying = false; } return; }
     }
     const live = this.phase === 'play';
     this.updateIsland(dt, live);
@@ -282,6 +292,12 @@ export class World {
     this.updateOrders(dt);
     this.updateReturns(dt);
     for (const s of this.sinks) { if (s.busy > 0) s.busy -= dt; if (s.flash > 0) s.flash -= dt; }
+  }
+
+  timeUp() {
+    const ev = {};
+    if (this.mode === 'vs') ev.result = this.result = { winner: Math.abs(this.tug - 0.5) < EPS ? -1 : this.tug > 0.5 ? 0 : 1, ko: false };
+    this.emit('timeup', ev);
   }
 
   start() { if (this.phase === 'ready') { this.phase = 'play'; this.emit('go'); } }
@@ -324,8 +340,14 @@ export class World {
     if (mag > 1) { mx /= mag; mz /= mag; }
     if (!live) { mx = 0; mz = 0; }
     c.dashCd -= dt;
+    if (c.stun > 0) {
+      c.stun -= dt;
+      if (c.stun <= 0) { c.stun = 0; c.stunImmune = TUNE.stunImmune; this.emit('stunEnd', { chef: c }); }
+    } else if (c.stunImmune > 0) c.stunImmune -= dt;
+    const stunned = c.stun > 0;
+    if (stunned) { mx = mz = 0; inp.dash = false; c.dashT = 0; c.vx = c.vz = 0; }
     if (live && inp.dash && c.dashCd <= 0) {
-      c.dashT = TUNE.dashTime; c.dashCd = TUNE.dashCooldown;
+      c.dashT = TUNE.dashTime; c.dashCd = this.mode === 'vs' ? TUNE.vsDashCooldown : TUNE.dashCooldown;
       if (mag > 0.1) { c.dashX = mx / Math.max(mag, 1e-6) * (mag > 1 ? mag : 1); c.dashZ = mz / Math.max(mag, 1e-6) * (mag > 1 ? mag : 1); const m2 = Math.hypot(c.dashX, c.dashZ); c.dashX /= m2; c.dashZ /= m2; }
       else { c.dashX = Math.sin(c.face); c.dashZ = Math.cos(c.face); }
       this.emit('dash', { chef: c });
@@ -352,7 +374,7 @@ export class World {
     if (c.throwPop > 0) c.throwPop -= dt;
     c.target = this.computeTarget(c);
     c.spraying = false;
-    if (!live) { c.work = null; inp.pick = inp.act = inp.dash = false; return; }
+    if (!live || stunned) { c.work = null; inp.pick = inp.act = inp.dash = false; return; }
     if (inp.pick) this.doPick(c);
     this.doAct(c, inp.act, inp.actHeld);
     inp.pick = inp.act = inp.dash = false;
@@ -435,7 +457,8 @@ export class World {
       const push = (min - d) / 2, nx = dx / d, nz = dz / d;
       a.x -= nx * push; a.z -= nz * push; b.x += nx * push; b.z += nz * push;
       const rel = (a.vx - b.vx) * nx + (a.vz - b.vz) * nz;
-      if (rel > 2.2 && a.bump <= 0 && b.bump <= 0) {
+      if (this.mode === 'vs' && (this.dashHit(a, b, nx, nz) || this.dashHit(b, a, -nx, -nz))) { /* stunned */ }
+      else if (rel > 2.2 && a.bump <= 0 && b.bump <= 0) {
         // light shove: the faster chef passes some speed to the other
         const k = rel * 0.45;
         a.vx -= nx * k; a.vz -= nz * k; b.vx += nx * k; b.vz += nz * k;
@@ -444,6 +467,26 @@ export class World {
       }
       this.collideChef(a); this.collideChef(b);
     }
+  }
+
+  /** VS: dashing chef a rams chef b: stun, drop what b holds, a bounces back */
+  dashHit(a, b, nx, nz) {
+    if (a.dashT <= 0 || b.stun > 0 || b.stunImmune > 0) return false;
+    b.stun = TUNE.stunTime; b.work = null; b.dashT = 0; b.vx = b.vz = 0; b.spraying = false;
+    a.dashT = 0; a.vx = -nx * 2.5; a.vz = -nz * 2.5;
+    this.stats.vs[a.idx].stuns++;
+    this.emit('stun', { chef: b, by: a, x: b.x, z: b.z });
+    const it = b.held;
+    if (it) {
+      b.held = null;
+      const target = { k: 'floor', x: b.x + a.dashX * 1.6, z: b.z + a.dashZ * 1.6, s: 1.6 };
+      const f = { item: it, x0: b.x, z0: b.z, y0: 0.95, target, t: 0, dur: 0.3, h: 0.35, x: b.x, y: 0.95, z: b.z, by: a };
+      it.where = { k: 'air', flight: f };
+      this.flights.push(f);
+      this.stats.vs[a.idx].knocked++;
+      this.emit('knock', { chef: b, item: it, flight: f });
+    }
+    return true;
   }
 
   checkPortal(c) {
@@ -607,6 +650,8 @@ export class World {
         if (h.kind !== 'plate') return false;
         const dish = dishOfContents(h.contents);
         if (!dish) { this.emit('hint', { chef: c, tile: t, text: h.dirty ? 'DIRTY PLATE' : 'NOT A FULL DISH' }); return false; }
+        const owner = t.station.owner;
+        if (owner >= 0 && owner !== c.idx) { this.emit('hint', { chef: c, tile: t, text: 'WRONG HATCH' }); return false; }
         c.held = null; this.serve(c, t, h, dish);
         return true;
       }
@@ -852,13 +897,19 @@ export class World {
   updateOrders(dt) {
     for (let i = this.tickets.length - 1; i >= 0; i--) {
       const tk = this.tickets[i];
-      tk.t -= dt;
+      tk.t -= tk.vip ? dt * 2 : dt;
       if (tk.t <= 0) {
         this.tickets.splice(i, 1);
-        this.score = Math.max(0, this.score - TUNE.missPenalty);
-        this.streak = 0; this.stats.missed++;
+        if (this.mode !== 'vs') { this.score = Math.max(0, this.score - TUNE.missPenalty); this.streak = 0; }
+        this.stats.missed++;
         this.emit('ticketMissed', { ticket: tk });
       }
+    }
+    if (this.mode === 'vs' && this.time >= this.nextVip) {
+      this.nextVip += TUNE.vipEvery;
+      const tk = this.tickets.findLast((x) => !x.vip) || this.spawnTicket();
+      tk.vip = true; tk.t = tk.dur;
+      this.emit('vip', { ticket: tk });
     }
     if (this.tickets.length < 3) {
       this.ticketSpawn += dt;
@@ -883,6 +934,7 @@ export class World {
     const tk = this.tickets[idx];
     this.tickets.splice(idx, 1);
     const inOrder = idx === 0;
+    if (this.mode === 'vs') return this.serveVs(c, tile, dish, tk);
     this.streak = inOrder ? this.streak + 1 : 0;
     const mult = Math.max(1, Math.min(4, this.streak));
     this.stats.bestStreak = Math.max(this.stats.bestStreak, mult);
@@ -894,16 +946,37 @@ export class World {
     this.emit('serve', { chef: c, tile, dish, base, tip, mult, inOrder, ticket: tk });
   }
 
+  /** VS: a served ticket pulls the bar toward the server, K.O. at either end */
+  serveVs(c, tile, dish, tk) {
+    const vip = !!tk.vip, delta = (vip ? TUNE.tugVip : TUNE.tugStep) * (c.idx === 0 ? 1 : -1);
+    this.tug = clamp(this.tug + delta, 0, 1);
+    const p = this.stats.vs[c.idx];
+    p.served++; if (vip) p.vip++;
+    this.stats.served[dish]++;
+    this.hitStop = 0.07;
+    this.emit('serve', { chef: c, tile, dish, base: 0, tip: 0, mult: 1, inOrder: false, ticket: tk, vip, owner: tile.station.owner });
+    this.emit('tug', { value: this.tug, delta, by: c.idx, vip });
+    const winner = this.tug > 1 - EPS ? 0 : this.tug < EPS ? 1 : -1;
+    if (winner >= 0) {
+      this.tug = winner ? 0 : 1;
+      this.phase = 'over'; this.result = { winner, ko: true };
+      for (const ch of this.chefs) { ch.work = null; ch.spraying = false; }
+      this.emit('ko', { winner });
+    }
+  }
+
   updateReturns(dt) {
     for (let i = this.returns.length - 1; i >= 0; i--) {
       const r = this.returns[i];
       r.t -= dt;
       if (r.t > 0) continue;
-      if (this.returnBelt) {
-        if (!this.beltFree(this.returnBelt, 0)) continue;
+      const rb = this.returnBelts[this.returnN % this.returnBelts.length];
+      if (rb) {
+        if (!this.beltFree(rb, 0)) continue;
+        this.returnN++;
         const p = this.newPlate(true);
-        this.returnBelt.items.push({ item: p, s: 0 }); p.where = { k: 'belt', belt: this.returnBelt };
-        this.emit('plateBack', { tile: this.returnTile, item: p });
+        rb.items.push({ item: p, s: 0 }); p.where = { k: 'belt', belt: rb };
+        this.emit('plateBack', { tile: rb.returnTile, item: p });
       } else {
         const t = this.returnTile;
         if (t.item && t.item.kind === 'plate' && t.item.dirty) t.item.count++;
