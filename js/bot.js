@@ -11,6 +11,7 @@ export class BotTeam {
   constructor(world, { log = null, solo = null } = {}) {
     this.w = world;
     this.log = log;
+    this.tick = 0;
     this.solo = solo; // VS: this team is one chef playing for itself
     if (world.mode === 'vs' && solo == null) {
       // VS: two independent single-chef teams, one per chef
@@ -19,7 +20,6 @@ export class BotTeam {
       return;
     }
     this.roles = solo == null ? world.map.bot : { prep: solo, cook: solo, wash: solo };
-    this.tick = 0;
     this.neglect = 0;
     this.plans = [];
     this.planSeq = 1;
@@ -54,7 +54,7 @@ export class BotTeam {
     if (w.phase !== 'play') return;
     if (this.pending && this.pending.length) { const now = this.tick; const run = this.pending.filter((p) => p.at <= now); this.pending = this.pending.filter((p) => p.at > now); for (const p of run) p.fn(); }
     if (this.neglect > 0) { this.neglect--; return; }
-    if (this.tick % 8 === 1) this.manage();
+    if ((this.tick + 4 * (this.solo || 0)) % 8 === 1) this.manage();
     for (const b of this.brains) if (act[b.i]) this.think(b);
   }
 
