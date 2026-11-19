@@ -18,6 +18,8 @@
     "test:dishes": "node tools/dishtest.mjs && node tools/bottest.mjs",
     "test:chop": "node tools/choptest.mjs",
     "stills:v2": "node tools/stills-v2.mjs",
-    "test:finale": "node tools/finale-verify.mjs"
+    "test:finale": "node tools/finale-verify.mjs",
+    "test:vs": "node tools/vstest.mjs && node tools/vsbottest.mjs",
+    "test:vs-e2e": "node tools/vs-final.mjs"
   }
 }

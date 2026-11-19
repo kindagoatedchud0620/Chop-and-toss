@@ -34,6 +34,16 @@ Then open http://localhost:4921 (Node 18 or newer, no install step, no build ste
 
 The title screen shows the menu rolled for the next shift. R rolls a new kitchen and a new menu.
 
+## VS mode (Tug-of-War)
+
+Pick **VS MODE** on the title screen (or open `?mode=vs`). The two chefs compete instead of cooking together:
+
+- Each chef serves only at their own hatch: the cat at the orange left hatch, the raccoon at the purple right hatch. Both race for the same tickets.
+- A shared tug-of-war bar starts at 50 : 50. Each matching dish pulls it 10 percent your way. Pull it all the way for a K.O. VICTORY. At 0:00 the bigger side wins.
+- Dash into your rival (Left Shift or L) to stun them for 1.5 s and knock whatever they hold onto the floor. The dash has a 3 s cooldown in VS.
+- Every 40 s one ticket becomes a flashing gold VIP ticket with a siren. It drains twice as fast and pulls the bar 30 percent.
+- `?mode=vs&bot` makes both chefs AI; `?mode=vs&bot=2` lets you play the cat against the AI raccoon (`bot=1` for the reverse).
+
 ## End of shift
 
 - The best shift score is kept in the browser (`localStorage` key `chop-and-toss-best`) and shown on the title screen.
@@ -93,6 +103,9 @@ node tools/prove.mjs             # headless Chrome: full rounds, forced fire, wa
 node tools/keytest.mjs           # real key events for both players at once in the real-time loop
 node tools/choptest.mjs          # real E and K holds chop at the same time
 node tools/finale-verify.mjs     # end of shift: standard and record endings, localStorage, stills in out/stills-v3/
+node tools/vstest.mjs            # VS rules: layouts, tug, K.O., stun, VIP (no browser)
+node tools/simtest.mjs all 1 --vs   # VS bots on every map (no browser)
+node tools/vs-final.mjs          # VS end to end: real keys, bot rounds, stills in out/stills-vs/
 node tools/dishtest.mjs          # menu roll, pot rules and the three new dishes (no browser)
 node tools/bottest.mjs           # bot routing table and all six dishes served (no browser)
 node tools/simtest.mjs all 1 --menus   # every menu on every map with the AI (no browser)
