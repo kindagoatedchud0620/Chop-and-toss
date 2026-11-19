@@ -543,9 +543,12 @@ export class BotTeam {
         if (sink && this.reach(b, sink.tiles[0]) < Infinity) return this.use(sink.tiles[0], 'dirty plate to sink');
         return this.putDown(b, 'park dirty plate');
       }
-      if (dishOfContents(h.contents)) {
+      const dish = dishOfContents(h.contents);
+      if (dish) {
         const hatch = this.hatchOf(b);
-        if (this.reach(b, hatch.tiles[0]) < Infinity) return this.use(hatch.tiles[0], 'serve ' + dishOfContents(h.contents));
+        // VS: the rival may take the ticket first, a late plate would be a wrong serve
+        const open = () => this.solo == null || w.tickets.some((tk) => tk.dish === dish);
+        if (open() && this.reach(b, hatch.tiles[0]) < Infinity) return this.use(hatch.tiles[0], 'serve ' + dish, { valid: open });
         return this.putDown(b, 'park dish');
       }
       const p = h.plan;
@@ -585,7 +588,7 @@ export class BotTeam {
         const d = this.reach(b, tile);
         if (d < 14) return this.use(tile, 'add to plate', { valid: () => p.plate && p.plate.where.k === 'tile' && p.plate.where.tile === tile });
       }
-      return this.toStaging(b, h);
+      return this.toStaging(b, h) || this.toTrash(b); // no free counter: bin it rather than stand there
     }
     return this.toTrash(b) || this.putDown(b, 'park odd item');
   }
