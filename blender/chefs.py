@@ -182,7 +182,7 @@ def chef_raccoon():
     animate(root)
 
 
-# -- animation clips ('exhausted', 'victory') ---------------------------------
+# -- animation clips ('exhausted', 'victory', 'dizzy') ---------------------------------
 # Poses are sampled per frame (30 fps) into one NLA track per object per clip; the
 # exporter merges same-named tracks into one glTF animation. Blender axes: front -Y, up +Z.
 FPS = 30
@@ -271,12 +271,31 @@ def victory(t):
     }
 
 
+def dizzy(t):
+    w = 2 * math.pi / 1.2
+    sn, cs = math.sin(w * t), math.cos(w * t)
+    s2, c2 = math.sin(2 * w * t), math.cos(2 * w * t)
+    lean, loll = math.degrees(0.12), math.degrees(0.25)
+    return {
+        'chef': ((0, 0, 0.01 + 0.01 * s2), (lean * sn, 0, 25 * math.sin(w * t + 0.6)), (1, 1, 1)),
+        'body': ((0, 0, 0.2), (3 * cs, 0, 4 * sn), (1, 1, 1)),
+        'head': ((0, 0, 0.56), (-loll * sn, 0, -loll * cs), (1, 1, 1)),   # lolls opposite the lean
+        'eyes': (None, (0, 0, 0), (1, 1, 0.35 + 0.05 * s2)),               # None keeps the rest location
+        'hat': ((0.03, 0.05, 0.495), (-8 + 6 * sn, 38 + 8 * cs, 10 * s2), (1, 1, 1)),
+        'handL': ((-0.36 + 0.03 * cs, 0.05 * sn, 0.2 + 0.02 * s2), (55 * sn, 0, 30 * cs + 15), (1, 1, 1)),
+        'handR': ((0.36 + 0.03 * sn, 0.05 * cs, 0.2 + 0.02 * c2), (55 * cs, 0, 30 * sn - 15), (1, 1, 1)),
+        'footL': ((-0.16 - 0.025 * sn, -0.02 + 0.02 * cs, 0), (0, 0, -9 + 8 * sn), (1, 1, 1)),
+        'footR': ((0.16 + 0.025 * cs, -0.02 - 0.02 * sn, 0), (0, 0, 9 - 8 * cs), (1, 1, 1)),
+        'tail': ((0, 0.2, 0.2), (-80 + 6 * sn, 14 * math.sin(2 * w * t + 1), 10 * cs), (1, 1, 1)),
+    }
+
+
 def animate(root):
-    """bake both clips onto the chef nodes as NLA tracks, then restore the rest pose"""
+    """bake the clips onto the chef nodes as NLA tracks, then restore the rest pose"""
     bpy.context.scene.render.fps = FPS
     obs = {o.name: o for o in [root] + list(root.children_recursive)}
     rest = {n: (tuple(o.location), tuple(o.rotation_euler), tuple(o.scale)) for n, o in obs.items()}
-    for clip, fn, secs in (('exhausted', exhausted, 2.4), ('victory', victory, 1.6)):
+    for clip, fn, secs in (('dizzy', dizzy, 1.2), ('exhausted', exhausted, 2.4), ('victory', victory, 1.6)):   # victory last: its frame 0 is the rest pose
         n = round(secs * FPS)
         for name, ob in obs.items():
             if name not in fn(0):
@@ -284,7 +303,7 @@ def animate(root):
             ob.animation_data_create()
             for f in range(n + 1):
                 loc, rot, sc = fn(f / FPS if f < n else 0.0)[name]   # last frame == first frame
-                ob.location, ob.scale = loc, sc
+                ob.location, ob.scale = loc or rest[name][0], sc
                 ob.rotation_euler = [math.radians(a) for a in rot]
                 for path in ('location', 'rotation_euler', 'scale'):
                     ob.keyframe_insert(path, frame=f)
@@ -292,6 +311,7 @@ def animate(root):
             act.name = f'{clip}.{name}'
             tr = ob.animation_data.nla_tracks.new()
             tr.name = clip
+            tr.mute = clip == 'dizzy' and name == 'eyes'   # keep eyes' rest scale out of the evaluated rest pose
             tr.strips.new(clip, 0, act)
             ob.animation_data.action = None
     for n, o in obs.items():

@@ -20,6 +20,7 @@
 <div id="hud" class="hidden">
   <div id="tickets"></div>
   <div id="streak" class="hidden"><span class="lab">TIP STREAK</span><b>x1</b></div>
+  <div id="tug" class="tug hidden"><div class="tug-side tug-p1"><img id="tug-face-p1" alt=""><span>CAT</span></div><div class="tug-track"><div id="tug-fill" class="tug-fill"></div><div class="tug-mid"></div><div id="tug-knot" class="tug-knot"></div></div><div class="tug-side tug-p2"><span>RACCOON</span><img id="tug-face-p2" alt=""></div><div id="tug-pct" class="tug-pct">50 : 50</div></div>
   <div id="status">
     <div id="clock">03:00</div>
     <div id="score"><span class="lab">SCORE</span><b>0</b></div>
@@ -82,7 +83,11 @@
     </div>
     <div class="cta">
       <div class="best"><span>BEST SCORE</span><b id="best">0</b></div>
-      <button id="play" type="button">PLAY RANDOM KITCHEN</button>
+      <div class="cta-mid">
+        <div id="mode-toggle" class="mode-toggle" role="radiogroup" aria-label="Game mode"><button type="button" class="mode-opt on" data-mode="coop" role="radio" aria-checked="true">CO-OP</button><button type="button" class="mode-opt" data-mode="vs" role="radio" aria-checked="false">VS MODE</button></div>
+        <div id="mode-caption" class="mode-caption">Cook together. Beat the clock.</div>
+        <button id="play" type="button">PLAY RANDOM KITCHEN</button>
+      </div>
       <div class="cta-note">Press Enter to start<br>M sound, R new kitchen</div>
     </div>
   </div>
