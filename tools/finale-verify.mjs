@@ -38,8 +38,10 @@ check('camera pulled back', d1 > d0 * 1.08, `(distance ${d0} -> ${d1}, x${(d1 / 
 check('both chefs play the exhausted clip', clipsStd.every((x) => x === 'exhausted'), JSON.stringify(clipsStd));
 await c.shot(OUT + 'standard-1-exhausted-pullback.png');
 // run into the summary state, then let the DOM timeline play in real time
-await untilExpr('window.game.state === "summary"', 60 * 4);
+// draw the 3D frame BEFORE the DOM timeline starts (a 1080p software draw takes seconds and the DOM runs in real time)
+await untilExpr('window.game.end.t >= 1.6', 60 * 4);
 await ev('window.__step(1)');
+await untilExpr('window.game.state === "summary"', 60 * 4);
 const stdDone = await waitPhase('done', 20000);
 await c.shot(OUT + 'standard-2-summary-stars.png');
 const stdUi = await ev('({ score: document.getElementById("sum-score").textContent, lit: document.querySelectorAll("#stars svg.on").length, pill: document.getElementById("sum-best").textContent, banner: getComputedStyle(document.getElementById("sum-banner")).opacity + "/" + getComputedStyle(document.getElementById("sum-banner")).display, stars: window.game.lastStars })');
@@ -64,8 +66,9 @@ check('camera pushed in on the chefs', r1 < r0 * 0.75, `(distance ${r0} -> ${r1}
 check('both chefs loop the victory clip, standing together for the high-five', rec.clips.every((x) => x === 'victory') && rec.apart > 0.9 && rec.apart < 1.4, JSON.stringify(rec));
 check('golden confetti and order tickets are raining', rec.confetti > 150 && rec.tickets > 15, `(${rec.confetti} confetti, ${rec.tickets} tickets alive)`);
 await c.shot(OUT + 'record-1-confetti-climax.png');
-await untilExpr('window.game.state === "summary"', 60 * 4);
+await untilExpr('window.game.end.t >= 2.4', 60 * 4);
 await ev('window.__step(1)');
+await untilExpr('window.game.state === "summary"', 60 * 4);
 const gotBest = await waitPhase('best', 20000);
 await sleep(300);
 await c.shot(OUT + 'record-2-old-best.png');

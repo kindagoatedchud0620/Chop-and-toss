@@ -17,6 +17,7 @@
     "clip": "sh tools/clip-all.sh",
     "test:dishes": "node tools/dishtest.mjs && node tools/bottest.mjs",
     "test:chop": "node tools/choptest.mjs",
-    "stills:v2": "node tools/stills-v2.mjs"
+    "stills:v2": "node tools/stills-v2.mjs",
+    "test:finale": "node tools/finale-verify.mjs"
   }
 }

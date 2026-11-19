@@ -256,7 +256,7 @@ export class Fx {
     const R = (a, b) => a + Math.random() * (b - a);
     for (let i = 0; i < n + nt; i++) {
       const tk = i >= n, u = Math.random();
-      const col = tk ? [2.2, 1.7, 0.8] : u < 0.05 ? [4.0, 3.6, 2.6] : u < 0.26 ? [4.0, 1.2, 0.1] : [R(3.2, 4.4), R(1.9, 2.6), R(0.1, 0.3)];
+      const col = tk ? [1.7, 1.05, 0.4] : u < 0.05 ? [4.0, 3.6, 2.6] : u < 0.26 ? [4.0, 1.2, 0.1] : [R(3.2, 4.4), R(1.5, 2.1), R(0.05, 0.2)];
       (tk ? this.tickets : this.confetti).spawn({
         x: R(x0, x1), y: R(y0, y1), z: R(z0, z1), vx: R(-0.4, 0.4), vy: -R(0.5, 1.5), vz: R(-0.4, 0.4), life: 30, s0: tk ? 1.05 : R(0.35, 0.57), s1: tk ? 1.05 : 0.44,
         grav: R(2.0, 3.0), drag: 1, flutter: R(1.5, 3), spin: R(3, 5), sink: 0.3, inT: 0, r: col[0], g: col[1], b: col[2],

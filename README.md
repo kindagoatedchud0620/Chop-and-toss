@@ -34,6 +34,13 @@ Then open http://localhost:4921 (Node 18 or newer, no install step, no build ste
 
 The title screen shows the menu rolled for the next shift. R rolls a new kitchen and a new menu.
 
+## End of shift
+
+- The best shift score is kept in the browser (`localStorage` key `chop-and-toss-best`) and shown on the title screen.
+- A standard ending pulls the camera back, plays the exhausted clip on both chefs (panting, wiping a brow), then tallies the score and stamps 1 to 3 stars.
+- A new best triggers the Record Breaker ending: the camera pushes in, the chefs jump and high-five on a loop, golden confetti and order tickets rain over the kitchen, an FM synth fanfare cuts in over the buzzer, and the new score smashes the old best score off the panel under a pulsing NEW SHIFT RECORD! banner.
+- `?time=N` (3 to 180) shortens the shift for testing.
+
 ## The four kitchens
 
 1. **Split River Rafts**: prep on the left raft, cook on the right, throw everything across the river.
@@ -85,6 +92,7 @@ node tools/simtest.mjs all 1     # pure simulation, AI plays a full round on eac
 node tools/prove.mjs             # headless Chrome: full rounds, forced fire, washing, random restarts
 node tools/keytest.mjs           # real key events for both players at once in the real-time loop
 node tools/choptest.mjs          # real E and K holds chop at the same time
+node tools/finale-verify.mjs     # end of shift: standard and record endings, localStorage, stills in out/stills-v3/
 node tools/dishtest.mjs          # menu roll, pot rules and the three new dishes (no browser)
 node tools/bottest.mjs           # bot routing table and all six dishes served (no browser)
 node tools/simtest.mjs all 1 --menus   # every menu on every map with the AI (no browser)
