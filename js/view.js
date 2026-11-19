@@ -1,6 +1,6 @@
 // Turns a World into a three.js scene and keeps it in sync every frame.
 import * as THREE from 'three';
-import { spawn, part, meshesOf } from './assets.js';
+import { spawn, part, meshesOf, clipOf } from './assets.js';
 import { patchMaterial, lightUniforms, MAX_FIRES } from './gfx.js';
 import { PLAYER_COLORS, dishOfContents, TUNE } from './data.js';
 
@@ -11,6 +11,8 @@ const HALF = Math.PI / 2;
 const _v = new THREE.Vector3(), _v2 = new THREE.Vector3(), _q = new THREE.Quaternion(), _e = new THREE.Euler(), _m = new THREE.Matrix4(), _c = new THREE.Color();
 const lerp = (a, b, t) => a + (b - a) * t;
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+const ease = (k) => k * k * (3 - 2 * k);
+const wrapPi = (a) => Math.atan2(Math.sin(a), Math.cos(a));
 const hash = (n) => { const s = Math.sin(n * 127.1 + 311.7) * 43758.5453; return s - Math.floor(s); };
 
 const FOOD_RGB = {
@@ -69,6 +71,7 @@ export class View {
     this.beltViews = [];
     this.extras = [];
     this.shake = 0;
+    this.end = null; // end of shift staging, see beginEnd
     this.camTarget = new THREE.Vector3();
     this.camBase = new THREE.Vector3();
     this.fireLevel = 0;
@@ -77,6 +80,8 @@ export class View {
   }
 
   dispose() {
+    this.gfx.camera.clearViewOffset();
+    for (const cv of this.chefViews) { cv.mixer.stopAllAction(); cv.mixer.uncacheRoot(cv.model); }
     this.batch.dispose();
     this.gfx.scene.remove(this.root);
     for (const m of this.tints.values()) m.dispose();
@@ -395,7 +400,7 @@ export class View {
     this.root.add(g);
     g.position.set(c.x, 0, c.z);
     return {
-      c, g, model, n, anchor, ring, cursor, phase: c.idx * 1.7, lean: 0, hx: 0, hvx: 0, hz: 0, hvz: 0, hatx: 0, hatv: 0, blink: 1.5 + c.idx, pop: 0, lastVx: 0, lastVz: 0,
+      c, g, model, mixer: new THREE.AnimationMixer(model), act: null, clip: null, at: null, sc: 1, n, anchor, ring, cursor, phase: c.idx * 1.7, lean: 0, hx: 0, hvx: 0, hz: 0, hvz: 0, hatx: 0, hatv: 0, blink: 1.5 + c.idx, pop: 0, lastVx: 0, lastVz: 0,
       hl: new THREE.Vector3().copy(n.handL.userData.p0), hr: new THREE.Vector3().copy(n.handR.userData.p0), hold: new THREE.Vector3(), cursorTile: null, cursorPop: 0, dustT: 0, sprayT: 0,
     };
   }
@@ -446,8 +451,86 @@ export class View {
     const sx = Math.sin(this.time * 71.3) * s + Math.sin(this.time * 113.7) * s * 0.6, sy = Math.cos(this.time * 83.1) * s;
     const sway = this.attract ? Math.sin(this.time * 0.22) * 1.1 : 0; // slow pan behind the title screen
     const tx = this.camDrift.x + sx + sway, tz = this.camTz + this.camDrift.z;
-    cam.position.set(tx, Math.sin(this.camPitch) * this.camDist + 0.3 + sy, tz + Math.cos(this.camPitch) * this.camDist);
-    cam.lookAt(tx, 0.3 + sy * 0.5, tz);
+    const e = this.end, ek = e ? ease(Math.min(1, e.t / e.dur)) : 0;
+    const dist = this.camDist * lerp(1, e ? e.mult : 1, ek);
+    const x = e?.stage ? lerp(tx, e.stage.x, ek) : tx, z = e?.stage ? lerp(tz, e.stage.z, ek) : tz;
+    cam.position.set(x, Math.sin(this.camPitch) * dist + 0.3 + sy, z + Math.cos(this.camPitch) * dist);
+    cam.lookAt(x, 0.3 + sy * 0.5, z);
+    // shift the picture left so the kitchen sits left of the summary panel (a positive offset moves the scene left)
+    if (e) cam.setViewOffset(1000 * cam.aspect, 1000, e.shift * ek * 1000 * cam.aspect, 0, 1000 * cam.aspect, 1000);
+  }
+
+  // ---- end of shift -------------------------------------------------------
+  /** free 2x2 block of floor cells nearest to (x, z): returns its centre */
+  stagePoint(x, z) {
+    const w = this.world;
+    let best = { x, z }, bd = 1e9;
+    for (let gz = 0; gz < w.H - 1; gz++) for (let gx = 0; gx < w.W - 1; gx++) {
+      let ok = true;
+      for (const [dx, dz] of [[0, 0], [1, 0], [0, 1], [1, 1]]) { const c = w.cell(gx + dx, gz + dz); if (!w.walkable(gx + dx, gz + dz) || c.portal || c.lane) ok = false; }
+      const px = w.wx(gx) + 0.5, pz = w.wz(gz) + 0.5, d = (px - x) ** 2 + (pz - z) ** 2;
+      if (ok && d < bd) { bd = d; best = { x: px, z: pz }; }
+    } // shortcut: if no block is free the stage is the midpoint itself
+    return best;
+  }
+
+  /** standard ending (tired chefs, pulled back camera) or record ending (stage, victory, confetti) */
+  beginEnd(record) {
+    const w = this.world, cs = w.chefs;
+    const mid = this.stagePoint((cs[0].x + cs[1].x) / 2, (cs[0].z + cs[1].z) / 2);
+    // the standard ending keeps the normal look-at (no stage) and only pulls back
+    this.end = record ? { record, t: 0, dur: 1.6, mult: 0.5, shift: 0.2, stage: mid, rain: 0 } : { record, t: 0, dur: 1.4, mult: 1.14, shift: 0.19, stage: null };
+    this.chefViews.forEach((cv, i) => {
+      cv.at = { x: cv.c.x, z: cv.c.z, face: cv.c.face, f0: cv.c.face };
+      if (!record) {
+        cv.turn = clamp(wrapPi(-cv.c.face), -0.61, 0.61); // about 35 degrees toward the camera
+        this.playClip(cv, 'exhausted');
+        this.fx.dust(cv.c.x, cv.c.z, 5, 0.08, 0.7);
+      }
+    });
+    if (record) this.fx.startConfetti();
+  }
+
+  /** loop a model animation on a chef; with no such clip the procedural idle stays */
+  playClip(cv, name) {
+    const clip = clipOf(cv.c.idx === 0 ? 'chef_cat' : 'chef_raccoon', name);
+    cv.mixer.stopAllAction();
+    cv.act = clip ? cv.mixer.clipAction(clip).reset().setLoop(THREE.LoopRepeat, Infinity).play() : null;
+    cv.clip = clip ? name : null;
+  }
+
+  stepEnd(dt) {
+    const e = this.end, fx = this.fx;
+    if (!e) return;
+    e.t += dt;
+    this.chefViews.forEach((cv, i) => {
+      if (!e.record) { cv.at.face = cv.at.f0 + cv.turn * ease(Math.min(1, e.t / 0.5)); return; }
+      const tp = e.t - 0.3; // the pop starts when the buzzer is cut
+      if (tp < 0) return;
+      if (!cv.puffed) { cv.puffed = true; fx.dust(cv.at.x, cv.at.z, 6, 0.08, 0.9); }
+      if (tp < 0.18) cv.sc = 1 - tp / 0.18;
+      else {
+        if (!cv.popped) { // jump to the stage, both chefs start the clip on the same frame
+          cv.popped = true;
+          const s = i === 0 ? 1 : -1;
+          cv.at = { x: e.stage.x - 0.52 * s, z: e.stage.z + 0.23 * s, face: s * HALF };
+          this.playClip(cv, 'victory');
+          fx.ringPop(cv.at.x, 0.1, cv.at.z, [3.0, 2.2, 0.6], 12, 1.8);
+        }
+        const k = Math.min(1, (tp - 0.18) / 0.25);
+        cv.sc = 1 + 2.7 * (k - 1) ** 3 + 1.7 * (k - 1) ** 2; // ease out back
+      }
+    });
+    if (!e.record) return;
+    // confetti: a burst over the stage, then a steady rain over the whole kitchen
+    const w = this.world, hw = w.W / 2, hh = w.H / 2;
+    if (e.rain === 0 && e.t >= 0.3) { e.rain = 1; fx.rain(260, 30, e.stage.x - 2.5, e.stage.x + 2.5, e.stage.z - 2, e.stage.z + 2, 1.5, 8); }
+    if (e.rain) {
+      e.cf = (e.cf || 0) + dt * 120; e.tk = (e.tk || 0) + dt * 14;
+      const n = Math.floor(e.cf), nt = Math.floor(e.tk);
+      e.cf -= n; e.tk -= nt;
+      fx.rain(n, nt, -hw, hw, -hh, hh, 9, 13);
+    }
   }
 
   // ---- per frame ----------------------------------------------------------
@@ -521,6 +604,7 @@ export class View {
       }
     }
 
+    this.stepEnd(dt);
     for (const cv of this.chefViews) this.updateChef(cv, dt, time, live);
     this.syncItems(dt, time);
     this.updateServed(dt);
@@ -601,20 +685,29 @@ export class View {
   }
 
   updateChef(cv, dt, time, live) {
-    const c = cv.c, n = cv.n, fx = this.fx;
+    const c = cv.c, n = cv.n, fx = this.fx, at = cv.at;
+    if (cv.act) { // a model animation drives the pose: only position, scale and the ring are ours
+      cv.mixer.update(dt);
+      cv.g.position.set(at.x, 0, at.z); cv.g.rotation.y = at.face;
+      cv.model.rotation.x = 0; cv.model.scale.setScalar(CHEF_S * cv.sc);
+      cv.g.updateMatrixWorld(true); cv.anchor.getWorldPosition(cv.hold);
+      this.chefRing(cv, dt, time, live);
+      return;
+    }
     const sp = clamp(c.moving / TUNE.walkSpeed, 0, 1.6);
     const walking = sp > 0.08;
     cv.phase += dt * (walking ? 7.5 + sp * 5 : 0);
     const ph = cv.phase;
     const bob = walking ? Math.abs(Math.sin(ph)) * 0.055 * Math.min(1, sp) : Math.sin(time * 2.2 + c.idx) * 0.008;
     const dash = c.dashT > 0 ? 1 : 0;
-    cv.g.position.set(c.x, bob, c.z);
-    cv.g.rotation.y = c.face;
+    cv.g.position.set(at ? at.x : c.x, bob, at ? at.z : c.z);
+    cv.g.rotation.y = at ? at.face : c.face;
     cv.lean = lerp(cv.lean, Math.min(1, sp) * 0.13 + dash * 0.3, 0.2);
     cv.pop = Math.max(0, cv.pop - dt * 4);
     const pop = Math.max(c.catchPop > 0 ? Math.sin(c.catchPop / 0.3 * Math.PI) * 0.16 : 0, c.bump > 0 ? Math.sin(c.bump / 0.3 * Math.PI) * 0.12 : 0, cv.pop * 0.12);
     cv.model.rotation.x = cv.lean;
-    cv.model.scale.set(CHEF_S * (1 + pop * 0.6 - dash * 0.06), CHEF_S * (1 - pop * 0.5 + dash * 0.04), CHEF_S * (1 + pop * 0.6 + dash * 0.2));
+    const S = CHEF_S * cv.sc;
+    cv.model.scale.set(S * (1 + pop * 0.6 - dash * 0.06), S * (1 - pop * 0.5 + dash * 0.04), S * (1 + pop * 0.6 + dash * 0.2));
     // body waddle
     n.body.rotation.z = n.body.userData.r0.z + (walking ? Math.sin(ph) * 0.07 : 0);
     n.body.position.y = n.body.userData.p0.y + (c.work ? Math.abs(Math.sin(time * 15)) * 0.015 : 0);
@@ -678,12 +771,23 @@ export class View {
     n.eyes.scale.y = cv.blink < 0.11 ? 0.12 : (c.catchPop > 0 || dash ? 1.18 : 1);
     cv.g.updateMatrixWorld(true);
     cv.anchor.getWorldPosition(cv.hold);
-    // ring and cursor
-    cv.ring.position.set(c.x, 0.015, c.z);
-    cv.ring.rotation.y = c.face;
-    const rs = 1 + Math.sin(time * 4 + c.idx) * 0.03;
+    this.chefRing(cv, dt, time, live);
+    if (!live) return;
+    // dust
+    if (dash) { cv.dustT -= dt; if (cv.dustT <= 0) { cv.dustT = 0.03; fx.dust(c.x - fwdX * 0.2, c.z - fwdZ * 0.2, 2, 0.08, 0.8); } }
+    else if (walking && sp > 0.8) { cv.dustT -= dt; if (cv.dustT <= 0) { cv.dustT = 0.22; fx.dust(c.x - fwdX * 0.25, c.z - fwdZ * 0.25, 1, 0.05, 0.4); } }
+    if (c.spraying) fx.foam(cv.hold.x + fwdX * 0.3, cv.hold.y + 0.1, cv.hold.z + fwdZ * 0.3, fwdX, fwdZ);
+    if (work && work.kind === 'wash' && Math.random() < dt * 20) fx.suds(cv.hold.x + fwdX * 0.25, 0.95, cv.hold.z + fwdZ * 0.25, 1);
+  }
+
+  /** ground ring and target cursor of a chef (cursor hidden once the shift is over) */
+  chefRing(cv, dt, time, live) {
+    const c = cv.c, at = cv.at;
+    cv.ring.position.set(at ? at.x : c.x, 0.015, at ? at.z : c.z);
+    cv.ring.rotation.y = at ? at.face : c.face;
+    const rs = (1 + Math.sin(time * 4 + c.idx) * 0.03) * cv.sc;
     cv.ring.scale.set(rs, 1, rs);
-    const tgt = live ? c.target : null;
+    const tgt = live && !this.end ? c.target : null;
     if (tgt !== cv.cursorTile) { cv.cursorTile = tgt; cv.cursorPop = 1; }
     cv.cursorPop = Math.max(0, cv.cursorPop - dt * 6);
     if (tgt) {
@@ -693,12 +797,6 @@ export class View {
       const s = 1.0 + Math.sin(time * 7) * 0.025 + cv.cursorPop * 0.18 - c.idx * 0.035;
       cv.cursor.scale.set(s, 1.2, s);
     } else cv.cursor.visible = false;
-    if (!live) return;
-    // dust
-    if (dash) { cv.dustT -= dt; if (cv.dustT <= 0) { cv.dustT = 0.03; fx.dust(c.x - fwdX * 0.2, c.z - fwdZ * 0.2, 2, 0.08, 0.8); } }
-    else if (walking && sp > 0.8) { cv.dustT -= dt; if (cv.dustT <= 0) { cv.dustT = 0.22; fx.dust(c.x - fwdX * 0.25, c.z - fwdZ * 0.25, 1, 0.05, 0.4); } }
-    if (c.spraying) fx.foam(cv.hold.x + fwdX * 0.3, cv.hold.y + 0.1, cv.hold.z + fwdZ * 0.3, fwdX, fwdZ);
-    if (work && work.kind === 'wash' && Math.random() < dt * 20) fx.suds(cv.hold.x + fwdX * 0.25, 0.95, cv.hold.z + fwdZ * 0.25, 1);
   }
 
   // ---- items --------------------------------------------------------------

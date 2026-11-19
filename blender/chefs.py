@@ -1,6 +1,6 @@
 """The two bobblehead chefs. Smooth and bevelled. Articulated nodes:
 chef > body, head (> eyes, hat), handL, handR, footL, footR, tail.   Front is -Y (glTF +Z)."""
-import math
+import math, bpy
 from kit import model, Part, empty, shade
 
 
@@ -260,7 +260,7 @@ def victory(t):
         'chef': ((0, 0, h - 0.08 * qb), (0, 0, 0), (1, 1, 1)),
         'body': ((0, 0, 0.2), (10 * qb - 8 * air, 0, 0), squash(q)),
         'head': ((0, 0, 0.56 + 0.38 * (squash(q)[2] - 1)),
-                 (8 * qb - 22 * keys(t, [(0, 0.0), (0.4, 0.0), (0.65, 1.0), (1.0, 0.0), (1.6, 0.0)]), 0, 5 * whip),
+                 (8 * qb - 14 * keys(t, [(0, 0.0), (0.4, 0.0), (0.65, 1.0), (1.0, 0.0), (1.6, 0.0)]), 0, 5 * whip),
                  (1, 1, 1)),
         'hat': ((0, 0.05, 0.5252 + bounce), (-10 - 6 * whip, 0, 4 * whip), (1, 1, 1)),
         'handL': (hL, rL, (1, 1, 1)),
@@ -273,6 +273,7 @@ def victory(t):
 
 def animate(root):
     """bake both clips onto the chef nodes as NLA tracks, then restore the rest pose"""
+    bpy.context.scene.render.fps = FPS
     obs = {o.name: o for o in [root] + list(root.children_recursive)}
     rest = {n: (tuple(o.location), tuple(o.rotation_euler), tuple(o.scale)) for n, o in obs.items()}
     for clip, fn, secs in (('exhausted', exhausted, 2.4), ('victory', victory, 1.6)):

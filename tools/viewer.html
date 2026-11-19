@@ -7,6 +7,7 @@
 <script type="module">
 import { createGfx, THREE } from '../js/gfx.js';
 import { loadAssets, spawn, models } from '../js/assets.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 const q = new URLSearchParams(location.search);
 const gfx = createGfx(document.getElementById('c'));
 gfx.resize(innerWidth, innerHeight);
@@ -24,21 +25,32 @@ const rows = Math.ceil(names.length / cols);
 const ground = new THREE.Mesh(new THREE.PlaneGeometry(200, 200), new THREE.MeshStandardMaterial({ color: q.get('bg') || 0x9aa3ad, roughness: 1 }));
 ground.rotation.x = -Math.PI / 2; ground.position.y = -0.12; ground.receiveShadow = true; gfx.scene.add(ground);
 const scale = Number(q.get('s')) || 1;
+// clip=<name>&ct=<seconds>: pose every animated instance (clips read straight from the glb); hf=1: two chefs high-fiving
+const clipName = q.get('clip'), ct = Number(q.get('ct')) || 0, hf = !!q.get('hf');
+const gl = new GLTFLoader(), pending = [];
+if (hf) names = [names[0], names[0]];
 names.forEach((n, i) => {
   const o = spawn(n);
+  if (clipName) pending.push(gl.loadAsync(`../assets/models/${n}.glb`).then((g) => {
+    const clip = g.animations.find((c) => c.name === clipName);
+    if (!clip) return;
+    const mx = new THREE.AnimationMixer(o); mx.clipAction(clip).play(); mx.setTime(ct); mx.update(0);
+  }));
   const cx = (i % cols - (cols - 1) / 2) * gap, cz = (Math.floor(i / cols) - (rows - 1) / 2) * gap;
   o.position.set(cx, 0, cz); o.scale.setScalar(scale);
-  if (q.get('ry')) o.rotation.y = Number(q.get('ry')) * Math.PI / 180;
+  if (hf) { o.position.set(i ? 0.52 : -0.52, 0, i ? -0.23 : 0.23); o.rotation.y = i ? -Math.PI / 2 : Math.PI / 2; }
+  if (q.get('ry') && !hf) o.rotation.y = Number(q.get('ry')) * Math.PI / 180;
   gfx.scene.add(o);
   o.userData.label = n;
 });
+await Promise.all(pending);
 const w = cols * gap, d = rows * gap;
 gfx.fitShadow(0, 0, w, d);
 const pitch = (Number(q.get('pitch')) || 52) * Math.PI / 180;
 const fov = gfx.camera.fov * Math.PI / 180;
 const dist = Math.max(d * 0.62 / Math.tan(fov / 2), w * 0.55 / (Math.tan(fov / 2) * gfx.camera.aspect)) * (Number(q.get('zoom')) || 1);
 gfx.camera.position.set(0, Math.sin(pitch) * dist, Math.cos(pitch) * dist);
-gfx.camera.lookAt(0, 0.3, 0);
+gfx.camera.lookAt(0, Number(q.get('ty')) || 0.3, 0);
 gfx.render(); gfx.render();
 gfx.scene.traverse((o) => { if (o.userData.label) { const v = o.position.clone(); v.z += gap * 0.42; v.project(gfx.camera);
   const e = document.createElement('div'); e.className = 'l'; e.textContent = o.userData.label;

@@ -3,6 +3,9 @@ import { DISHES, POT_RECIPES, STARS, TUNE } from './data.js';
 
 const $ = (id) => document.getElementById(id);
 const STAR = '<svg viewBox="0 0 24 24"><path d="M12 2.2l2.9 6.3 6.9.8-5.1 4.7 1.4 6.8L12 17.4l-6.1 3.4 1.4-6.8-5.1-4.7 6.9-.8z"/></svg>';
+// end-of-round timeline, ms of real time (see showSummary)
+const ROW_GAP = 250, ROW_DUR = 600, SCORE_DUR = 1200, STAR_WAIT = 350, STAR_GAP = 450, STAR_LAND = 160, SETTLE = 300;
+const BEST_IN = 400, BEST_HOLD = 700, SMASH_DUR = 280, NUM_DELAY = 350, BANNER_DELAY = 200, BANNER_IN = 350;
 
 export class Hud {
   constructor() {
@@ -12,6 +15,10 @@ export class Hud {
     this.thumbs = {};
     this.last = {};
     this.alarmT = 0;
+    this.timers = [];
+    this.raf = new Set();
+    this.phase = '';
+    this.onEvent = undefined; // (type, i) => {}: 'stamp' per star, 'smash' at impact
   }
 
   loading(p) { this.el.loadbar.style.width = Math.round(p * 100) + '%'; }
@@ -60,7 +67,7 @@ export class Hud {
     this.el.map.textContent = world.map.name;
     this.el.streak.classList.add('hidden');
     this.el.alarm.style.opacity = '0';
-    this.el.summary.classList.add('hidden');
+    this.hideSummary();
     this.menuStrip(world.menu);
     this.center('', '');
   }
@@ -135,21 +142,124 @@ export class Hud {
 
   markMissed(tk) { const t = this.tickets.get(tk.id); if (t) t.missed = true; }
 
-  showSummary(world, best, isNew) {
-    const s = world.stats;
+  /** end-of-round panel; returns the star count and runs the timeline in real time */
+  showSummary(world, { best, prevBest, record }) {
+    this.hideSummary();
+    const s = world.stats, menu = world.menu;
     const stars = world.score >= STARS[2] ? 3 : world.score >= STARS[1] ? 2 : 1;
+    const calm = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const sum = this.el.summary, scoreEl = $('sum-score'), numEl = $('sum-oldbest'), card = $('sum-bestcard'), banner = $('sum-banner');
     $('sum-map').textContent = world.map.name;
-    $('stars').innerHTML = [0, 1, 2].map((i) => STAR.replace('<svg', `<svg class="${i < stars ? 'on' : ''}"`)).join('');
-    $('sum-score').textContent = world.score;
-    const b = $('sum-best');
-    b.textContent = isNew ? 'NEW BEST SCORE' : `BEST ${best}`;
-    b.className = isNew ? 'new' : '';
-    $('sum-rows').innerHTML = world.menu.map((id) => `<div class="sum-row">${this.img('dish_' + id)}<span class="n">${DISHES[id].name}</span><span class="c">x${s.served[id]}</span><span class="p">${s.served[id] * DISHES[id].points}</span></div>`).join('');
-    const total = world.menu.reduce((n, id) => n + s.served[id], 0);
+    $('stars').innerHTML = STAR.repeat(3);
+    $('sum-best').textContent = prevBest ? `BEST ${prevBest}` : 'FIRST SHIFT';
+    $('sum-rows').innerHTML = menu.map((id) => `<div class="sum-row">${this.img('dish_' + id)}<span class="n">${DISHES[id].name}</span><span class="c">x0</span><span class="p">0</span></div>`).join('');
+    const total = menu.reduce((n, id) => n + s.served[id], 0);
     $('sum-foot').innerHTML = `<span>Dishes <b>${total}</b></span><span>Tips <b>+${s.tips}</b></span><span>Best streak <b>x${Math.max(1, s.bestStreak)}</b></span>` +
       (s.missed ? `<span class="neg">Missed ${s.missed} <b>-${s.missed * TUNE.missPenalty}</b></span>` : '');
-    this.el.summary.classList.remove('hidden');
+    numEl.textContent = prevBest || 0;
+    sum.classList.toggle('record', !!record);
+    sum.classList.remove('hidden');
+    this.setPhase('tally');
+
+    const rowEls = [...$('sum-rows').children], starEls = [...$('stars').children], vals = menu.map((id) => ({ c: s.served[id], p: s.served[id] * DISHES[id].points }));
+    const rowsEnd = ROW_GAP * (menu.length - 1) + ROW_DUR, starsAt = rowsEnd + SCORE_DUR + STAR_WAIT;
+    const done = starsAt + STAR_GAP * (stars - 1) + STAR_LAND + SETTLE;
+    const paint = (r, v, k) => { r.querySelector('.c').textContent = 'x' + Math.round(v.c * k); r.querySelector('.p').textContent = Math.round(v.p * k); };
+
+    if (calm) {
+      rowEls.forEach((r, i) => { r.classList.add('in'); paint(r, vals[i], 1); });
+      $('sum-foot').classList.add('in');
+      scoreEl.textContent = world.score;
+      starEls.forEach((st, i) => i < stars && st.classList.add('on'));
+      $('sum-best').classList.add('in');
+      if (record) { numEl.textContent = best; card.classList.add('show', 'gold'); banner.classList.add('show'); }
+      this.setPhase('done');
+      return stars;
+    }
+
+    menu.forEach((id, i) => this.later(ROW_GAP * i, () => {
+      rowEls[i].classList.add('in');
+      this.tween(ROW_DUR, (k) => paint(rowEls[i], vals[i], k));
+    }));
+    this.later(rowsEnd, () => $('sum-foot').classList.add('in'));
+    this.later(rowsEnd, () => this.tween(SCORE_DUR, (k) => { scoreEl.textContent = Math.round(world.score * k); }));
+    this.later(starsAt, () => { this.setPhase('stars'); $('sum-best').classList.add('in'); });
+    for (let i = 0; i < stars; i++) {
+      const at = starsAt + STAR_GAP * i;
+      this.later(at, () => starEls[i].classList.add('on', 'stamp'));
+      this.later(at + STAR_LAND, () => { this.shake('thump'); this.onEvent?.('stamp', i); });
+    }
+
+    if (!record) {
+      this.later(done, () => this.setPhase('done'));
+      return stars;
+    }
+    // record: old best card, then the score slams onto it
+    const fall = done + BEST_IN + BEST_HOLD, impact = fall + SMASH_DUR;
+    this.later(done, () => { this.setPhase('best'); card.classList.add('show'); });
+    this.later(fall, () => {
+      const sm = document.createElement('b');
+      sm.className = 'smasher';
+      sm.textContent = world.score;
+      numEl.appendChild(sm);
+    });
+    this.later(impact, () => {
+      numEl.querySelector('.smasher')?.remove();
+      this.setPhase('smash');
+      numEl.innerHTML = String(prevBest || 0).split('').map((ch) => {
+        const r = (n) => (Math.random() * 2 - 1) * n;
+        return `<span class="shard" style="--dx:calc(${r(90).toFixed(1)} * var(--u));--dy:calc(${r(70).toFixed(1)} * var(--u));--dr:${r(60).toFixed(0)}deg">${ch}</span>`;
+      }).join('') + '<i class="ring"></i>';
+      this.shake('quake');
+      this.onEvent?.('smash');
+    });
+    this.later(impact + NUM_DELAY, () => {
+      numEl.textContent = best;
+      numEl.classList.add('pop');
+      card.classList.add('gold');
+    });
+    this.later(impact + NUM_DELAY + BANNER_DELAY, () => banner.classList.add('show'));
+    this.later(impact + NUM_DELAY + BANNER_DELAY + BANNER_IN, () => banner.classList.add('live'));
+    this.later(impact + NUM_DELAY + BANNER_DELAY + BANNER_IN + SETTLE, () => this.setPhase('done'));
     return stars;
   }
-  hideSummary() { this.el.summary.classList.add('hidden'); }
+
+  later(ms, fn) { this.timers.push(setTimeout(fn, ms)); }
+  /** eased 0..1 over ms in real time; draw(e) gets the eased value */
+  tween(ms, draw) {
+    const t0 = performance.now();
+    const step = () => {
+      const k = Math.min(1, (performance.now() - t0) / ms);
+      draw(1 - Math.pow(1 - k, 3));
+      if (k < 1) this.frame(step);
+    };
+    this.frame(step);
+  }
+  frame(fn) { const id = requestAnimationFrame(() => { this.raf.delete(id); fn(); }); this.raf.add(id); }
+  /** restart a one-shot shake class on the panel wrapper */
+  shake(cls) { const e = $('sum-shake'); e.classList.remove('thump', 'quake'); void e.offsetWidth; e.classList.add(cls); }
+  setPhase(p) { this.phase = p; this.el.summary.dataset.phase = p; }
+  summaryPhase() { return this.phase; }
+
+  hideSummary() {
+    this.timers.forEach(clearTimeout); this.timers = [];
+    this.raf.forEach(cancelAnimationFrame); this.raf.clear();
+    const sum = this.el.summary;
+    sum.classList.add('hidden');
+    sum.classList.remove('record');
+    sum.removeAttribute('data-phase');
+    this.phase = '';
+    $('sum-shake').className = '';
+    $('sum-rows').innerHTML = '';
+    $('stars').innerHTML = '';
+    $('sum-score').textContent = '0';
+    $('sum-best').textContent = '';
+    $('sum-best').className = '';
+    $('sum-foot').innerHTML = '';
+    $('sum-foot').className = '';
+    $('sum-oldbest').innerHTML = '0';
+    $('sum-oldbest').className = '';
+    $('sum-bestcard').className = '';
+    $('sum-banner').className = '';
+  }
 }

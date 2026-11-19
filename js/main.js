@@ -3,6 +3,7 @@
 //   ?bot          both chefs are AI (?bot=1 or ?bot=2 for a single AI chef)
 //   ?hold         no real-time loop: call window.__step(n) to advance n frames of 1/60 s
 //   ?seed=N       fixed random seed
+//   ?time=N       shift length in seconds (3 to 180) for testing the end of shift
 //   ?dishes=0,1,2 force the menu (3 indices into DISH_IDS) for every round
 import { createGfx } from './gfx.js';
 import { loadAssets } from './assets.js';
@@ -23,17 +24,19 @@ const FORCED = q.has('map') ? Math.max(0, Math.min(MAPS.length - 1, parseInt(q.g
 const SEED = q.has('seed') ? Number(q.get('seed')) : null;
 const idx = (q.get('dishes') || '').split(',').map(Number);
 const MENU = idx.length === 3 && new Set(idx).size === 3 && idx.every((i) => Number.isInteger(i) && i >= 0 && i < DISH_IDS.length) ? idx.map((i) => DISH_IDS[i]) : null;
+const TIME = /^\d+$/.test(q.get('time') || '') && +q.get('time') >= 3 && +q.get('time') <= 180 ? +q.get('time') : null;
 const BEST_KEY = 'chop-and-toss-best';
 
 const canvas = document.getElementById('stage');
 const hud = new Hud();
 const input = new Input();
 const sfx = new Sfx();
+hud.onEvent = (type, i) => { if (type === 'stamp') sfx.star(i); else if (type === 'smash') sfx.bump(); }; // DOM tally moments
 let gfx, fx;
 
 const game = {
   state: 'loading', world: null, view: null, bot: null, mapIndex: -1, frame: 0, cd: 0, tu: 0, rounds: 0, history: [],
-  perf: { fps: 0, cpuMs: 0, frames: 0, worstMs: 0 }, best: 0, lastStars: 0, alarmBeat: 0,
+  perf: { fps: 0, cpuMs: 0, frames: 0, worstMs: 0 }, best: 0, prevBest: 0, end: null, lastStars: 0, alarmBeat: 0,
 };
 window.game = game;
 
@@ -55,6 +58,8 @@ function makeWorld(idx, attract, menu) {
   const world = new World(idx, seed, menu || MENU);
   game.world = world;
   game.mapIndex = idx;
+  if (TIME && !attract) world.timeLeft = TIME;
+  game.end = null;
   game.view = new View(gfx, fx, world);
   game.view.attract = attract;
   fx.quiet = attract;
@@ -82,11 +87,22 @@ function startRound(mapIdx, menu) {
   game.rounds++;
   game.history.push(w.map.id);
   game.state = 'countdown'; game.cd = 0; game.tu = 0;
-  hud.showTitle(false); hud.reset(w); hud.showHud(true);
+  hud.showTitle(false); hud.hideSummary(); hud.centerScale(1, 1); hud.reset(w); hud.showHud(true);
   hud.update(w, 0, 0);
   sfx.tick();
 }
 game.startRound = startRound;
+
+// the shift just ended: decide record or standard ending, stage it and play the matching sound
+function endShift(w) {
+  const prevBest = game.best, record = w.score > prevBest && w.score > 0;
+  if (record) { game.best = w.score; saveBest(w.score); } // saved now, so closing the page during the celebration keeps it
+  game.prevBest = prevBest;
+  game.end = { record, prevBest, t: 0 };
+  game.state = 'timeup'; game.tu = 0;
+  game.view.beginEnd(record);
+  if (record) { sfx.buzzer(0.3); sfx.fanfare(0.3); } else sfx.buzzer();
+}
 
 function advance() {
   const w = game.world, view = game.view;
@@ -109,26 +125,24 @@ function advance() {
   const audible = game.state !== 'title';
   for (const ev of w.events) {
     view.handle(ev);
-    if (audible) sfx.handle(ev);
+    if (audible && ev.type !== 'timeup') sfx.handle(ev);
     if (ev.type === 'ticketMissed') hud.markMissed(ev.ticket);
-    if (ev.type === 'timeup' && game.state === 'play') { game.state = 'timeup'; game.tu = 0; }
+    if (ev.type === 'timeup' && game.state === 'play') endShift(w);
   }
   w.events.length = 0;
   view.update(DT, game.state !== 'summary');
   fx.update(DT, gfx.camera, window.innerWidth, window.innerHeight);
 
+  if (game.state === 'timeup' || game.state === 'summary') game.end.t += DT;
   if (game.state === 'timeup') {
     game.tu += DT;
-    const k = Math.min(1, game.tu * 5);
-    hud.center('TIME UP', '', 'small');
-    hud.centerScale(1.5 - k * 0.5, 1);
-    if (game.tu >= 2.1) {
-      const isNew = w.score > game.best;
-      if (isNew) { game.best = w.score; saveBest(game.best); }
-      hud.center('', ''); hud.centerScale(1, 1);
-      game.lastStars = hud.showSummary(w, game.best, isNew);
+    if (game.tu < 1) {
+      hud.center('TIME UP', '', 'small');
+      hud.centerScale(1.5 - Math.min(1, game.tu * 5) * 0.5, 1);
+    } else if (game.tu < 1 + DT) { hud.center('', ''); hud.centerScale(1, 1); }
+    if (game.tu >= (game.end.record ? 2.6 : 1.8)) {
+      game.lastStars = hud.showSummary(w, { best: game.best, prevBest: game.prevBest, record: game.end.record });
       game.state = 'summary'; game.sumAt = performance.now();
-      for (let i = 0; i < game.lastStars; i++) setTimeout(() => sfx.star(i), 250 + i * 250);
     }
   }
   if (game.state !== 'title') {
@@ -199,7 +213,7 @@ input.onGlobal = (code) => {
   else if (code === 'KeyR') go();
   else if ((code === 'Enter' || code === 'NumpadEnter' || code === 'Space') && (game.state === 'title' || game.state === 'summary')) {
     // Enter and Space are also chef keys: do not let a mashed key skip the score screen
-    if (game.state === 'summary' && performance.now() - game.sumAt < 1200) return;
+    if (game.state === 'summary' && performance.now() - game.sumAt < (game.end?.record ? 2500 : 1200)) return;
     go();
   }
 };

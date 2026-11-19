@@ -332,7 +332,7 @@ def build(names=None):
             export_normals=True, export_materials='EXPORT', export_vertex_color='ACTIVE',
             export_all_vertex_colors=False, export_active_vertex_color_when_no_material=True,
             export_animations=name in ANIMATED, export_animation_mode='NLA_TRACKS',
-            export_optimize_animation_size=False, export_skins=False, export_morph=False, export_extras=False,
+            export_optimize_animation_size=False, export_optimize_animation_keep_anim_object=True, export_skins=False, export_morph=False, export_extras=False,
             export_tangents=False, export_cameras=False, export_lights=False)
         tris = sum(len(o.data.loop_triangles) if (o.type == 'MESH' and not o.data.calc_loop_triangles()) else 0
                    for o in bpy.data.objects)
