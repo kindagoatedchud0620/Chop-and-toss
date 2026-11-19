@@ -13,6 +13,7 @@ from mathutils import Vector, Matrix, Euler
 
 OUT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'assets', 'models'))
 MODELS = {}
+ANIMATED = set()  # models that export their NLA tracks as glTF animations
 
 # surface classes: roughness, metallic
 CLASSES = {
@@ -24,9 +25,11 @@ CLASSES = {
 }
 
 
-def model(name):
+def model(name, anim=False):
     def deco(fn):
         MODELS[name] = fn
+        if anim:
+            ANIMATED.add(name)
         return fn
     return deco
 
@@ -328,7 +331,8 @@ def build(names=None):
             filepath=path, export_format='GLB', use_selection=False, export_apply=False, export_yup=True,
             export_normals=True, export_materials='EXPORT', export_vertex_color='ACTIVE',
             export_all_vertex_colors=False, export_active_vertex_color_when_no_material=True,
-            export_animations=False, export_skins=False, export_morph=False, export_extras=False,
+            export_animations=name in ANIMATED, export_animation_mode='NLA_TRACKS',
+            export_optimize_animation_size=False, export_skins=False, export_morph=False, export_extras=False,
             export_tangents=False, export_cameras=False, export_lights=False)
         tris = sum(len(o.data.loop_triangles) if (o.type == 'MESH' and not o.data.calc_loop_triangles()) else 0
                    for o in bpy.data.objects)

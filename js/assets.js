@@ -4,6 +4,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { patchMaterial } from './gfx.js';
 
 export const models = {};
+export const clips = {}; // model name -> AnimationClip[] (empty when the glb has none)
 const matCache = new Map();
 
 function shareMaterial(m) {
@@ -33,6 +34,7 @@ export async function loadAssets(onProgress) {
       }
     });
     models[name] = root;
+    clips[name] = gltf.animations || [];
     done++;
     if (onProgress) onProgress(done / list.length);
   }));
@@ -45,6 +47,9 @@ export function spawn(name) {
   if (!src) throw new Error('unknown model ' + name);
   return src.clone(true);
 }
+
+/** animation clip of a model by name (null when the glb does not have it) */
+export function clipOf(model, name) { return (clips[model] || []).find((c) => c.name === name) || null; }
 
 /** find a named node inside an instance */
 export function part(obj, name) {

@@ -92,7 +92,29 @@ export class Sfx {
   alarm() { this.tone(980, 0.11, { type: 'square', vol: 0.12 }); this.tone(740, 0.11, { type: 'square', vol: 0.12, delay: 0.14 }); }
   tick(hi = false) { this.tone(hi ? 1320 : 880, 0.09, { type: 'square', vol: 0.12 }); }
   go() { this.tone(660, 0.1, { type: 'square', vol: 0.12 }); this.tone(1320, 0.4, { type: 'square', vol: 0.14, delay: 0.08 }); }
-  buzzer() { this.tone(196, 0.9, { type: 'sawtooth', vol: 0.25, slide: -30 }); this.tone(147, 0.9, { type: 'square', vol: 0.14, slide: -20 }); }
+  buzzer(len = 0.9) { this.tone(196, len, { type: 'sawtooth', vol: 0.25, slide: -30 }); this.tone(147, len, { type: 'square', vol: 0.14, slide: -20 }); }
+  /** FM voice: carrier at freq, modulator at freq * ratio whose depth (index * freq) decays over the note */
+  fm(freq, ratio, index, dur, vol, delay = 0) {
+    if (!this.on) return;
+    const c = this.ctx, t = c.currentTime + delay;
+    const car = c.createOscillator(), mod = c.createOscillator(), md = c.createGain(), g = c.createGain();
+    car.frequency.setValueAtTime(freq, t); mod.frequency.setValueAtTime(freq * ratio, t);
+    md.gain.setValueAtTime(freq * index, t); md.gain.exponentialRampToValueAtTime(freq * 0.02, t + dur);
+    g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(vol, t + 0.012); g.gain.exponentialRampToValueAtTime(0.0008, t + dur);
+    mod.connect(md); md.connect(car.frequency); car.connect(g); g.connect(this.master);
+    car.start(t); mod.start(t); car.stop(t + dur + 0.02); mod.stop(t + dur + 0.02);
+  }
+  /** record ending: rising major arpeggios, a held chord with shimmer, brass bass on the downbeats (about 3.5 s) */
+  fanfare(delay = 0) {
+    const hz = (n) => 523.25 * 2 ** (n / 12); // n semitones above C5
+    [0, 4, 7, 12].forEach((n, i) => this.fm(hz(n), 1, 2.2, 0.3, 0.16 + i * 0.03, delay + i * 0.16));
+    [14, 16, 19, 24].forEach((n, i) => this.fm(hz(n), 1, 2.5, 0.26, 0.22 + i * 0.03, delay + 0.7 + i * 0.1));
+    for (const [n, d] of [[-24, 0], [-24, 0.64], [-19, 1.1], [-12, 1.1]]) this.fm(hz(n), 1, 3, 0.4, 0.3, delay + d);
+    for (const n of [12, 16, 19, 24]) this.fm(hz(n), 2, 1.2, 2.2, 0.16, delay + 1.15);
+    this.fm(hz(-12), 1, 3, 2.2, 0.3, delay + 1.15);
+    for (let i = 0; i < 6; i++) this.tone(hz(24 + [0, 4, 7, 12, 16, 19][i]), 0.5, { type: 'sine', vol: 0.06, delay: delay + 1.3 + i * 0.12 });
+    this.noise(1.4, { type: 'highpass', freq: 4000, vol: 0.12, slide: 3000, attack: 0.3, delay: delay + 1.2 });
+  }
   ignite() { this.noise(0.6, { type: 'lowpass', freq: 300, vol: 0.5, slide: 1800, attack: 0.02 }); this.tone(90, 0.4, { type: 'sawtooth', vol: 0.2, slide: -40 }); }
   out() { this.noise(0.5, { type: 'highpass', freq: 2500, vol: 0.25, slide: -1500 }); }
   dash() { this.noise(0.14, { freq: 900, q: 0.7, vol: 0.18, slide: 1200 }); }

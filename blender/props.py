@@ -302,3 +302,26 @@ def chef_ring():
     p.torus(0.4, 0.035, (0, 0, 0.012), '#ffffff', g, n=24, m=4, smooth=False, scale=(1, 1, 0.3))
     p.prism([(-0.09, 0.0), (0.09, 0.0), (0.0, 0.14)], 0.02, (0, -0.52, 0.012), '#ffffff', g, rot=(0, 0, 180))
     p.done()
+
+
+@model('fx_confetti')
+def fx_confetti():
+    p = Part('confetti')
+    # flat strip, slightly bent along its length
+    p.box((0.07, 0.07, 0.01), (-0.035, 0, 0), '#ffffff', rot=(0, -6, 0))
+    p.box((0.07, 0.07, 0.01), (0.035, 0, 0), '#ffffff', rot=(0, 6, 0))
+    p.done()
+
+
+@model('fx_ticket')
+def fx_ticket():
+    p = Part('ticket')
+    pts = [(-0.18, -0.12)]                                              # outline, notches cut into the top edge
+    pts += [(0.18, -0.12), (0.18, 0.12)]
+    for i in range(7, -1, -1):
+        x = -0.18 + 0.045 + i * 0.045
+        pts += [(x + 0.012, 0.12), (x + 0.012, 0.095), (x - 0.012, 0.095), (x - 0.012, 0.12)] if i < 8 else []
+    pts += [(-0.18, 0.12)]
+    p.prism(pts, 0.01, (0, 0, 0), '#fff8ea')
+    p.box((0.36, 0.045, 0.012), (0, -0.03, 0), '#c9a227')              # stripe band
+    p.done()

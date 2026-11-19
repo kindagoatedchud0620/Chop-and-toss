@@ -3,6 +3,7 @@ chef > body, head (> eyes, hat), handL, handR, footL, footR, tail.   Front is -Y
 import math
 from kit import model, Part, empty, shade
 
+
 R = 0.33      # head radius
 CZ = 0.3      # head centre above the neck pivot
 SX, SZ = 1.1, 0.94
@@ -88,7 +89,7 @@ def paws(root, col, toe, pad='#f7a6b4'):
         p.done()
 
 
-@model('chef_cat')
+@model('chef_cat', anim=True)
 def chef_cat():
     F, FD, FL = '#f59b3c', '#d66f1c', '#fff0d9'
     root = empty('chef')
@@ -135,9 +136,10 @@ def chef_cat():
     for i, pt in enumerate(pts):
         tail.sphere(0.07 - i * 0.004, pt, FD if i in (2, 4) else (FL if i == 6 else F), 'matte', u=10, v=7)
     tail.done()
+    animate(root)
 
 
-@model('chef_raccoon')
+@model('chef_raccoon', anim=True)
 def chef_raccoon():
     F, FD, FL, DK = '#9aa1ab', '#6b727d', '#f1f4f8', '#2d3139'
     root = empty('chef')
@@ -177,3 +179,119 @@ def chef_raccoon():
     for i, pt in enumerate(pts):
         tail.sphere(rad[i], pt, DK if i % 2 else F, 'matte', u=10, v=7)
     tail.done()
+    animate(root)
+
+
+# -- animation clips ('exhausted', 'victory') ---------------------------------
+# Poses are sampled per frame (30 fps) into one NLA track per object per clip; the
+# exporter merges same-named tracks into one glTF animation. Blender axes: front -Y, up +Z.
+FPS = 30
+
+
+def ss(u):
+    u = min(1.0, max(0.0, u))
+    return u * u * (3 - 2 * u)
+
+
+def keys(t, ks):
+    """smoothstep through [(time, value | tuple)]"""
+    if t <= ks[0][0]:
+        return ks[0][1]
+    for (t0, a), (t1, b) in zip(ks, ks[1:]):
+        if t <= t1:
+            u = ss((t - t0) / (t1 - t0))
+            return tuple(x + (y - x) * u for x, y in zip(a, b)) if isinstance(a, tuple) else a + (b - a) * u
+    return ks[-1][1]
+
+
+def squash(q):
+    """body scale for squash amount q (>0 squash, <0 stretch), volume kept"""
+    z = 1 - 0.18 * q
+    xy = 1 / math.sqrt(z)
+    return (xy, xy, z)
+
+
+def exhausted(t):
+    w = 2 * math.pi / 2.4
+    br = math.sin(2 * w * t)
+    s = 0.985 + 0.055 * br
+    r = keys(t, [(0, 0.0), (0.45, 1.0), (1.9, 1.0), (2.4, 0.0)])      # hand-to-brow amount
+    ph = 2 * math.pi * 2 * (t - 0.45) / 1.45                          # two wipes
+    wipe = math.sin(ph) if 0.45 <= t <= 1.9 else 0.0
+    hang, brow = (0.36, 0.0, 0.25), (0.1 + 0.11 * wipe, -0.36, 1.0)
+    hr_ = tuple(h + r * (b - h) for h, b in zip(hang, brow))
+    sag = math.sin(w * t + 1)
+    return {
+        'chef': ((0, 0, 0), (0, 0, 0), (1, 1, 1)),
+        'body': ((0, 0, 0.2), (8 + 2 * br, 0, 0), (1 / math.sqrt(s), 1 / math.sqrt(s), s)),
+        'head': ((0, 0, 0.56 + 0.38 * (s - 1) - 0.03), (20 + 3 * math.sin(2 * w * t + 0.5), 0, 6 * math.sin(w * t)),
+                 (1, 1, 1)),
+        'hat': ((0.03, 0.05, 0.495), (-10 + 3 * sag, 20 + 3 * sag, 0), (1, 1, 1)),
+        'handL': ((-0.36, 0.0, 0.25 + 0.01 * br), (6 * br, 0, 0), (1, 1, 1)),
+        'handR': (hr_, (-75 * r, 0, 25 * r * wipe), (1, 1, 1)),
+        'footL': ((-0.16, -0.02, 0), (0, 0, -9), (1, 1, 1)),
+        'footR': ((0.16, -0.02, 0), (0, 0, 9), (1, 1, 1)),
+        'tail': ((0, 0.2, 0.22), (-55 + 10 * math.sin(w * t), 12 * math.sin(w * t + 1.5), 0), (1, 1, 1)),
+    }
+
+
+def victory(t):
+    if 19 <= t * FPS <= 20:
+        t = 0.65                       # hold the apex pose across its two neighbour frames
+    q = keys(t, [(0, 0.0), (0.25, 1.0), (0.4, -0.5), (0.65, 0.0), (1.0, 0.0), (1.12, 1.0), (1.3, -0.15), (1.6, 0.0)])
+    qb = max(q, 0)
+    if t < 0.65:
+        h = 0.55 * (1 - (1 - max(0, (t - 0.25) / 0.4)) ** 2)
+    else:
+        h = 0.55 * (1 - min(1, (t - 0.65) / 0.35) ** 2)
+    air = ss((t - 0.28) / 0.15) * (1 - ss((t - 0.95) / 0.07))
+    env = ss((t - 0.25) / 0.2) * (1 - ss((t - 1.05) / 0.4))
+    whip = env * math.sin(2 * math.pi * 3 * (t - 0.25))
+    bounce = keys(t, [(0, 0.0), (0.4, 0.0), (0.55, 0.07), (0.8, 0.02), (1.0, 0.0), (1.6, 0.0)])
+    R0, L0 = (0.31, -0.03, 0.4), (-0.31, -0.03, 0.4)
+    hR = keys(t, [(0, R0), (0.25, (0.36, 0.12, 0.25)), (0.45, (0.38, -0.25, 0.78)), (0.65, (0.24, -0.5, 1.0)),
+                  (1.0, (0.3, -0.3, 0.85)), (1.12, (0.36, 0.05, 0.28)), (1.3, (0.33, -0.03, 0.45)), (1.6, R0)])
+    hL = keys(t, [(0, L0), (0.25, (-0.36, 0.12, 0.25)), (0.45, (-0.45, -0.1, 0.8)), (0.65, (-0.58, -0.08, 1.05)),
+                  (1.0, (-0.5, -0.05, 0.9)), (1.12, (-0.36, 0.05, 0.28)), (1.3, (-0.33, -0.03, 0.45)), (1.6, L0)])
+    rR = keys(t, [(0, (0, 0, 0)), (0.45, (-30, 0, 0)), (0.65, (-90, 0, 0)), (1.0, (-60, 0, 0)), (1.3, (0, 0, 0)),
+                  (1.6, (0, 0, 0))])
+    rL = keys(t, [(0, (0, 0, 0)), (0.65, (-15, 0, -35)), (1.0, (-10, 0, -25)), (1.3, (0, 0, 0)), (1.6, (0, 0, 0))])
+    return {
+        'chef': ((0, 0, h - 0.08 * qb), (0, 0, 0), (1, 1, 1)),
+        'body': ((0, 0, 0.2), (10 * qb - 8 * air, 0, 0), squash(q)),
+        'head': ((0, 0, 0.56 + 0.38 * (squash(q)[2] - 1)),
+                 (8 * qb - 22 * keys(t, [(0, 0.0), (0.4, 0.0), (0.65, 1.0), (1.0, 0.0), (1.6, 0.0)]), 0, 5 * whip),
+                 (1, 1, 1)),
+        'hat': ((0, 0.05, 0.5252 + bounce), (-10 - 6 * whip, 0, 4 * whip), (1, 1, 1)),
+        'handL': (hL, rL, (1, 1, 1)),
+        'handR': (hR, rR, (1, 1, 1)),
+        'footL': ((-0.125, -0.02, 0.08 * qb), (25 * air, 0, 0), (1 + 0.1 * qb, 1 + 0.1 * qb, 1 - 0.3 * qb)),
+        'footR': ((0.125, -0.02, 0.08 * qb), (25 * air, 0, 0), (1 + 0.1 * qb, 1 + 0.1 * qb, 1 - 0.3 * qb)),
+        'tail': ((0, 0.2, 0.26 - 0.04 * qb), (-20 * air + 10 * qb, 0, 40 * whip), (1, 1, 1)),
+    }
+
+
+def animate(root):
+    """bake both clips onto the chef nodes as NLA tracks, then restore the rest pose"""
+    obs = {o.name: o for o in [root] + list(root.children_recursive)}
+    rest = {n: (tuple(o.location), tuple(o.rotation_euler), tuple(o.scale)) for n, o in obs.items()}
+    for clip, fn, secs in (('exhausted', exhausted, 2.4), ('victory', victory, 1.6)):
+        n = round(secs * FPS)
+        for name, ob in obs.items():
+            if name not in fn(0):
+                continue
+            ob.animation_data_create()
+            for f in range(n + 1):
+                loc, rot, sc = fn(f / FPS if f < n else 0.0)[name]   # last frame == first frame
+                ob.location, ob.scale = loc, sc
+                ob.rotation_euler = [math.radians(a) for a in rot]
+                for path in ('location', 'rotation_euler', 'scale'):
+                    ob.keyframe_insert(path, frame=f)
+            act = ob.animation_data.action
+            act.name = f'{clip}.{name}'
+            tr = ob.animation_data.nla_tracks.new()
+            tr.name = clip
+            tr.strips.new(clip, 0, act)
+            ob.animation_data.action = None
+    for n, o in obs.items():
+        o.location, o.rotation_euler, o.scale = rest[n]

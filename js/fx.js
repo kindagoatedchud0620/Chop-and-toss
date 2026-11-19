@@ -40,9 +40,11 @@ class Pool {
       const k = Math.exp(-p.drag * dt);
       p.vx *= k; p.vy = p.vy * k - p.grav * dt; p.vz *= k;
       p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt;
+      if (p.flutter) { const w = p.age * 5 + p.rx; p.vx += Math.sin(w) * p.flutter * dt; p.vz += Math.cos(w * 0.8) * p.flutter * dt; } // paper flutter
       if (p.floor != null && p.y < p.floor) { p.y = p.floor; p.vy *= -0.35; p.vx *= 0.6; p.vz *= 0.6; }
       const t = p.age / p.life;
       let s = p.s0 + (p.s1 - p.s0) * t;
+      if (p.sink != null && p.y < 0.1) { p.sink -= dt; if (p.sink <= 0) continue; s *= p.sink / 0.3; } // landed: shrink out in 0.3 s
       if (p.inT > 0) s *= Math.min(1, p.age / p.inT);
       if (p.out) s *= Math.min(1, (1 - t) / p.out);
       if (!p.upright) { p.rx += p.spin * dt; p.rz += p.spin * 0.7 * dt; } else p.ry += p.spin * dt;
@@ -235,6 +237,33 @@ export class Fx {
     }
   }
 
+  // ---- end of shift confetti (pools exist only during a record ending) ----
+  startConfetti() {
+    if (this.confetti) return;
+    const flat = (w, h) => new THREE.PlaneGeometry(w, h); // shortcut: plain quads until fx_confetti / fx_ticket models exist
+    const mat = () => new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide });
+    this.confetti = new Pool(this.scene, models.fx_confetti ? geoOf('fx_confetti') : flat(0.6, 0.36), mat(), 700);
+    this.tickets = new Pool(this.scene, models.fx_ticket ? geoOf('fx_ticket') : flat(0.5, 0.8), mat(), 160);
+    this.pools.push(this.confetti, this.tickets);
+  }
+  stopConfetti() {
+    if (!this.confetti) return;
+    for (const p of [this.confetti, this.tickets]) { p.dispose(this.scene); this.pools.splice(this.pools.indexOf(p), 1); }
+    this.confetti = this.tickets = null;
+  }
+  /** n confetti and nt tickets appear at random points of a box and flutter down */
+  rain(n, nt, x0, x1, z0, z1, y0, y1) {
+    const R = (a, b) => a + Math.random() * (b - a);
+    for (let i = 0; i < n + nt; i++) {
+      const tk = i >= n, u = Math.random();
+      const col = tk ? [2.4, 2.1, 1.5] : u < 0.08 ? [3.0, 3.0, 2.6] : u < 0.28 ? [3.0, 1.2, 0.25] : [R(2.4, 3.0), R(2.0, 2.4), R(0.3, 0.8)];
+      (tk ? this.tickets : this.confetti).spawn({
+        x: R(x0, x1), y: R(y0, y1), z: R(z0, z1), vx: R(-0.4, 0.4), vy: -R(0.5, 1.5), vz: R(-0.4, 0.4), life: 30, s0: tk ? 0.42 : R(0.22, 0.34), s1: tk ? 0.42 : 0.28,
+        grav: R(2.0, 3.0), drag: 1, flutter: R(1.5, 3), spin: R(3, 5), sink: 0.3, inT: 0, r: col[0], g: col[1], b: col[2],
+      });
+    }
+  }
+
   // ---- frame --------------------------------------------------------------
   update(dt, camera, w, h) {
     for (const p of this.pools) p.update(dt);
@@ -261,6 +290,7 @@ export class Fx {
   }
 
   clear() {
+    this.stopConfetti();
     for (const p of this.pools) { p.list.length = 0; p.mesh.count = 0; }
     for (const [, wd] of this.widgets) { wd.mesh.visible = false; this.free[wd.kind].push(wd); }
     this.widgets.clear();
