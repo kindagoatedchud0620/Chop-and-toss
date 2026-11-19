@@ -228,7 +228,7 @@ button:focus-visible { outline: calc(4 * var(--u)) solid var(--gold); outline-of
 .sum-row .n { font-weight: 700; font-size: calc(17 * var(--u)); }
 .sum-row .c { font-family: var(--display); font-weight: 700; font-size: calc(17 * var(--u)); color: #6a6d7e; }
 .sum-row .p { font-family: var(--display); font-weight: 900; font-size: calc(18 * var(--u)); min-width: calc(74 * var(--u)); text-align: right; }
-.sum-foot { display: flex; justify-content: center; gap: calc(22 * var(--u)); font-weight: 600; font-size: calc(15.5 * var(--u)); color: #4a4d5e; margin-bottom: calc(18 * var(--u)); flex-wrap: wrap; }
+.sum-foot { display: flex; justify-content: center; gap: calc(16 * var(--u)); font-weight: 600; font-size: calc(14 * var(--u)); color: #4a4d5e; margin-bottom: calc(18 * var(--u)); flex-wrap: wrap; }
 .sum-foot { opacity: 0; transition: opacity 0.4s; }
 .sum-foot.in { opacity: 1; }
 .sum-foot span { white-space: nowrap; }

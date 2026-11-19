@@ -28,7 +28,7 @@ const scale = Number(q.get('s')) || 1;
 // clip=<name>&ct=<seconds>: pose every animated instance (clips read straight from the glb); hf=1: two chefs high-fiving
 const clipName = q.get('clip'), ct = Number(q.get('ct')) || 0, hf = !!q.get('hf');
 const gl = new GLTFLoader(), pending = [];
-if (hf) names = [names[0], names[0]];
+if (hf && names.length < 2) names = [names[0], names[0]];
 names.forEach((n, i) => {
   const o = spawn(n);
   if (clipName) pending.push(gl.loadAsync(`../assets/models/${n}.glb`).then((g) => {
