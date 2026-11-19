@@ -4,6 +4,7 @@
 //   ?hold         no real-time loop: call window.__step(n) to advance n frames of 1/60 s
 //   ?seed=N       fixed random seed
 //   ?time=N       shift length in seconds (3 to 180) for testing the end of shift
+//   ?mode=vs      Tug-of-War VS mode (otherwise the title screen toggle decides, stored in localStorage)
 //   ?dishes=0,1,2 force the menu (3 indices into DISH_IDS) for every round
 import { createGfx } from './gfx.js';
 import { loadAssets } from './assets.js';
@@ -11,7 +12,7 @@ import { World } from './sim.js';
 import { BotTeam } from './bot.js';
 import { View } from './view.js';
 import { Fx } from './fx.js';
-import { Hud } from './hud.js';
+import { Hud, vsWinner } from './hud.js';
 import { Input } from './input.js';
 import { Sfx } from './audio.js';
 import { makeThumbs } from './thumbs.js';
@@ -25,7 +26,8 @@ const SEED = q.has('seed') ? Number(q.get('seed')) : null;
 const idx = (q.get('dishes') || '').split(',').map(Number);
 const MENU = idx.length === 3 && new Set(idx).size === 3 && idx.every((i) => Number.isInteger(i) && i >= 0 && i < DISH_IDS.length) ? idx.map((i) => DISH_IDS[i]) : null;
 const TIME = /^\d+$/.test(q.get('time') || '') && +q.get('time') >= 3 && +q.get('time') <= 180 ? +q.get('time') : null;
-const BEST_KEY = 'chop-and-toss-best';
+const BEST_KEY = 'chop-and-toss-best', MODE_KEY = 'chop-and-toss-mode';
+const CAPTIONS = { coop: 'Cook together. Beat the clock.', vs: 'Race to your own hatch. Dash to stun. Win the tug of war.' };
 
 const canvas = document.getElementById('stage');
 const hud = new Hud();
@@ -36,12 +38,23 @@ let gfx, fx;
 
 const game = {
   state: 'loading', world: null, view: null, bot: null, mapIndex: -1, frame: 0, cd: 0, tu: 0, rounds: 0, history: [],
-  perf: { fps: 0, cpuMs: 0, frames: 0, worstMs: 0 }, best: 0, prevBest: 0, end: null, lastStars: 0, alarmBeat: 0,
+  mode: 'coop', reattract: false, perf: { fps: 0, cpuMs: 0, frames: 0, worstMs: 0 }, best: 0, prevBest: 0, end: null, lastStars: 0, alarmBeat: 0,
 };
 window.game = game;
 
 function loadBest() { try { return Number(localStorage.getItem(BEST_KEY)) || 0; } catch { return 0; } }
 function saveBest(v) { try { localStorage.setItem(BEST_KEY, String(v)); } catch { /* private mode */ } }
+
+function loadMode() { try { return localStorage.getItem(MODE_KEY) === 'vs' ? 'vs' : 'coop'; } catch { return 'coop'; } }
+/** title toggle: user picks persist, the attract backdrop is rebuilt for the new mode */
+function setMode(m, user = false) {
+  game.mode = m;
+  for (const b of document.querySelectorAll('.mode-opt')) { const on = b.dataset.mode === m; b.classList.toggle('on', on); b.setAttribute('aria-checked', String(on)); }
+  document.getElementById('mode-caption').textContent = CAPTIONS[m];
+  if (!user) return;
+  try { localStorage.setItem(MODE_KEY, m); } catch { /* private mode */ }
+  if (game.state === 'title') startAttract();
+}
 
 function pickMap(explicit) {
   if (explicit != null) return explicit;
@@ -55,7 +68,7 @@ function makeWorld(idx, attract, menu) {
   if (game.view) game.view.dispose();
   fx.clear();
   const seed = SEED != null ? SEED + game.rounds : (Math.random() * 1e9) | 0;
-  const world = new World(idx, seed, menu || MENU);
+  const world = new World(idx, seed, menu || MENU, { mode: game.mode });
   game.world = world;
   game.mapIndex = idx;
   if (TIME && !attract) world.timeLeft = TIME;
@@ -93,6 +106,17 @@ function startRound(mapIdx, menu) {
 }
 game.startRound = startRound;
 
+// VS round over (K.O. at once, or time up): winner and loser clips, banner and sounds; the result panel follows
+function endVs(w) {
+  const r = w.result;
+  game.end = { vs: true, t: 0 };
+  game.state = 'timeup'; game.tu = 0;
+  game.view.beginEndVs(r);
+  hud.center(r.ko ? 'K.O. VICTORY!' : 'TIME UP', vsWinner(r), r.ko ? 'ko' : 'small', r.winner < 0 ? '' : 'win-p' + (r.winner + 1));
+  hud.centerScale(1, 1);
+  if (!r.ko) { sfx.buzzer(0.6); if (r.winner >= 0) sfx.fanfare(0.6); } // the K.O. sound plays from the 'ko' event
+}
+
 // the shift just ended: decide record or standard ending, stage it and play the matching sound
 function endShift(w) {
   const prevBest = game.best, record = w.score > prevBest && w.score > 0;
@@ -127,7 +151,9 @@ function advance() {
     view.handle(ev);
     if (audible && ev.type !== 'timeup') sfx.handle(ev);
     if (ev.type === 'ticketMissed') hud.markMissed(ev.ticket);
-    if (ev.type === 'timeup' && game.state === 'play') endShift(w);
+    if (game.state !== 'title') { if (ev.type === 'tug') hud.tugBump(ev); else if (ev.type === 'vip') hud.vipShake(); }
+    if (ev.type === 'ko' && game.state === 'title') game.reattract = true; // the demo round ended: start another
+    if ((ev.type === 'ko' || ev.type === 'timeup') && game.state === 'play') (w.mode === 'vs' ? endVs : endShift)(w);
   }
   w.events.length = 0;
   view.update(DT, game.state !== 'summary');
@@ -136,11 +162,14 @@ function advance() {
   if (game.state === 'timeup' || game.state === 'summary') game.end.t += DT;
   if (game.state === 'timeup') {
     game.tu += DT;
-    if (game.tu < 1) {
+    if (game.end.vs) {
+      if (game.tu < 0.2 && !w.result.ko) hud.centerScale(1.5 - game.tu * 2.5, 1);
+      if (game.tu >= 2.2) { hud.center('', ''); hud.centerScale(1, 1); hud.showVsSummary(w); game.state = 'summary'; game.sumAt = performance.now(); }
+    } else if (game.tu < 1) {
       hud.center('TIME UP', '', 'small');
       hud.centerScale(1.5 - Math.min(1, game.tu * 5) * 0.5, 1);
     } else if (game.tu < 1 + DT) { hud.center('', ''); hud.centerScale(1, 1); }
-    if (game.tu >= (game.end.record ? 2.6 : 1.8)) {
+    if (!game.end.vs && game.tu >= (game.end.record ? 2.6 : 1.8)) {
       game.lastStars = hud.showSummary(w, { best: game.best, prevBest: game.prevBest, record: game.end.record });
       game.state = 'summary'; game.sumAt = performance.now();
     }
@@ -154,6 +183,7 @@ function advance() {
     else if (!fire && lastSecs && game.alarmBeat <= 0) { sfx.tick(w.timeLeft <= 5); game.alarmBeat = 1.0; }
   }
   sfx.ambient(w, game.state === 'play');
+  if (game.reattract) { game.reattract = false; startAttract(); }
 }
 
 function resize() {
@@ -200,12 +230,16 @@ window.__test = {
   neglect(seconds) { if (game.bot) game.bot.neglect = Math.round(seconds * 60); },
   summary() {
     const w = game.world;
-    return { state: game.state, map: w.map.id, time: +w.time.toFixed(2), left: +w.timeLeft.toFixed(2), score: w.score, stats: w.stats, tickets: w.tickets.map((t) => t.dish), fires: w.fireCount, streak: w.streak,
+    const vs = w.mode === 'vs' ? { tug: w.tug, result: w.result, stats: w.stats.vs, stun: w.chefs.map((c) => c.stun) } : undefined;
+    return { vs, state: game.state, map: w.map.id, time: +w.time.toFixed(2), left: +w.timeLeft.toFixed(2), score: w.score, stats: w.stats, tickets: w.tickets.map((t) => t.dish), fires: w.fireCount, streak: w.streak,
       chefs: w.chefs.map((c) => ({ x: +c.x.toFixed(2), z: +c.z.toFixed(2), held: c.held ? (c.held.type || c.held.kind) + ':' + c.held.state : null })), stars: game.lastStars };
   },
 };
 
 // from the title the round uses the menu shown there; otherwise a fresh map and menu
+// the focused mode toggle keeps Tab, Space and Enter for itself: they must not start the round
+for (const type of ['keydown', 'keyup']) window.addEventListener(type, (e) => { if (e.target.closest?.('.mode-opt') && ['Tab', 'Space', 'Enter', 'NumpadEnter'].includes(e.code)) e.stopPropagation(); }, true);
+for (const b of document.querySelectorAll('.mode-opt')) b.addEventListener('click', (e) => { if (e.detail) b.blur(); setMode(b.dataset.mode, true); }); // a mouse click gives focus back so Enter starts the round
 const go = () => startRound(undefined, game.state === 'title' ? game.world.menu : undefined);
 input.onGlobal = (code) => {
   if (game.state === 'loading') return;
@@ -236,6 +270,7 @@ async function boot() {
   hud.setThumbs(makeThumbs(gfx));
   hud.loading(1);
   game.best = loadBest();
+  setMode(q.get('mode') === 'vs' ? 'vs' : loadMode());
   if (q.has('start')) startRound(); else startAttract();
   advance();
   gfx.render();

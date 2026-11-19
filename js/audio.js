@@ -125,6 +125,20 @@ export class Sfx {
   missed() { this.tone(330, 0.18, { type: 'sawtooth', vol: 0.14, slide: -120 }); this.tone(220, 0.3, { type: 'sawtooth', vol: 0.14, slide: -90, delay: 0.16 }); }
   plate() { this.tone(1500, 0.05, { type: 'sine', vol: 0.14 }); this.tone(2100, 0.08, { type: 'sine', vol: 0.1, delay: 0.03 }); }
   rumble() { this.noise(0.9, { type: 'lowpass', freq: 160, vol: 0.4, attack: 0.1 }); }
+  /** VIP ticket: two-tone siren, rising then falling, 1.6 s */
+  siren() { for (let i = 0; i < 4; i++) this.tone(i % 2 ? 950 : 600, 0.4, { type: 'sawtooth', vol: 0.12, slide: i % 2 ? -350 : 350, delay: i * 0.4 }); }
+  /** dash stun: bonk, bouncing boing, then two bird tweets */
+  stun() {
+    this.tone(120, 0.18, { vol: 0.5, slide: -70 }); this.noise(0.1, { type: 'lowpass', freq: 400, vol: 0.35 });
+    for (let i = 0; i < 3; i++) this.tone(200, 0.14, { type: 'triangle', vol: 0.22 - i * 0.05, slide: 260 - i * 80, delay: 0.1 + i * 0.15 });
+    for (const d of [0.55, 0.8]) { this.tone(2400, 0.06, { vol: 0.08, slide: 700, delay: d }); this.tone(3000, 0.07, { vol: 0.08, slide: -800, delay: d + 0.08 }); }
+  }
+  /** K.O.: heavy impact, gong, then the fanfare */
+  ko() {
+    this.noise(0.6, { type: 'lowpass', freq: 220, vol: 0.6, attack: 0.01 }); this.tone(60, 0.9, { vol: 0.6, slide: -30 });
+    this.fm(147, 1.41, 3, 2.4, 0.3); this.fm(220, 2.76, 2, 2.0, 0.14);
+    this.fanfare(0.8);
+  }
   star(i) { this.tone([784, 988, 1318][i] || 1318, 0.3, { type: 'triangle', vol: 0.22 }); }
 
   /** one-shot sounds for simulation events */
@@ -157,6 +171,10 @@ export class Sfx {
       case 'trash': this.land(); break;
       case 'islandMove': this.rumble(); break;
       case 'timeup': this.buzzer(); break;
+      case 'vip': this.siren(); break;
+      case 'stun': this.stun(); break;
+      case 'knock': this.whoosh(); break;
+      case 'ko': this.ko(); break;
       default: break;
     }
   }

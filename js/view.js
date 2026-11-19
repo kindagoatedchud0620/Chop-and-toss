@@ -1,6 +1,6 @@
 // Turns a World into a three.js scene and keeps it in sync every frame.
 import * as THREE from 'three';
-import { spawn, part, meshesOf, clipOf } from './assets.js';
+import { spawn, part, meshesOf, clipOf, ownMaterials } from './assets.js';
 import { patchMaterial, lightUniforms, MAX_FIRES } from './gfx.js';
 import { PLAYER_COLORS, dishOfContents, TUNE } from './data.js';
 
@@ -8,6 +8,9 @@ const TOP = 0.8;
 const CHEF_S = 1.04;
 const ING_S = 1.32, PLATE_S = 1.2, EXT_S = 1.25;
 const HALF = Math.PI / 2;
+const VS_COLORS = [0xff8a1f, 0x9b5cff]; // VS: orange cat, purple raccoon (rings, cursors, hatches)
+const VS_POP = [[3.0, 1.4, 0.2], [1.8, 0.9, 3.2]];
+const CANOPY_Y = 1.74, STAR_Y = 1.82; // hatch roof top and just above a chef's toque, from the models
 const _v = new THREE.Vector3(), _v2 = new THREE.Vector3(), _q = new THREE.Quaternion(), _e = new THREE.Euler(), _m = new THREE.Matrix4(), _c = new THREE.Color();
 const lerp = (a, b, t) => a + (b - a) * t;
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
@@ -319,7 +322,23 @@ export class View {
         c.scale.setScalar(0.95); c.position.set(0.44, 0.83 + i * 0.045, 0); c.visible = false; g.add(c); sv.clean.push(c);
       }
     } else {
-      batch.add('hatch', mat4(st.x, 0, st.z, ry), { only: ['hatch'] });
+      if (this.world.mode === 'vs') {
+        // owner colours: red stripes become orange or purple, a mini chef turns on the canopy
+        const h = spawn('hatch'), col = _c.set(VS_COLORS[st.owner]);
+        part(h, 'belt')?.removeFromParent();
+        h.traverse((m) => {
+          if (!m.isMesh) return;
+          m.geometry = m.geometry.clone(); this.extras.push(m.geometry);
+          const a = m.geometry.attributes.color;
+          for (let i = 0; i < a.count; i++) if (a.getX(i) > 0.6 && a.getY(i) < 0.1) a.setXYZ(i, col.r, col.g, col.b);
+        });
+        g.add(h);
+        const mini = new THREE.Group();
+        const m = spawn(st.owner === 0 ? 'chef_cat' : 'chef_raccoon');
+        m.scale.setScalar(0.42);
+        mini.add(m); g.add(mini);
+        sv.mascot = mini;
+      } else batch.add('hatch', mat4(st.x, 0, st.z, ry), { only: ['hatch'] });
       const belt = part(spawn('hatch'), 'belt');
       belt.removeFromParent();
       g.add(belt);
@@ -384,23 +403,26 @@ export class View {
     model.scale.setScalar(CHEF_S);
     g.add(model);
     const n = {};
-    for (const k of ['body', 'head', 'hat', 'eyes', 'handL', 'handR', 'footL', 'footR', 'tail']) { n[k] = part(model, k); n[k].userData.p0 = n[k].position.clone(); n[k].userData.r0 = n[k].rotation.clone(); }
+    for (const k of ['body', 'head', 'hat', 'eyes', 'handL', 'handR', 'footL', 'footR', 'tail']) { n[k] = part(model, k); n[k].userData.p0 = n[k].position.clone(); n[k].userData.r0 = n[k].rotation.clone(); n[k].userData.s0 = n[k].scale.clone(); }
     const anchor = new THREE.Object3D();
     anchor.position.set(0, 0.56, 0.46);
     model.add(anchor);
     const ring = spawn('chef_ring');
-    this.tintObj(ring, PLAYER_COLORS[c.idx], null, PLAYER_COLORS[c.idx]);
+    const col = this.world.mode === 'vs' ? VS_COLORS[c.idx] : PLAYER_COLORS[c.idx];
+    this.tintObj(ring, col, null, col);
+    const ringMats = [];
+    if (this.world.mode === 'vs') ownMaterials(ring).traverse((o) => { if (o.isMesh) { o.material.transparent = true; ringMats.push(o.material); this.extras.push(o.material); } }); // own copies: the dash cooldown dims them
     ring.traverse((o) => { o.castShadow = false; o.receiveShadow = false; });
     this.root.add(ring);
     const cursor = spawn('cursor');
-    this.tintObj(cursor, PLAYER_COLORS[c.idx], null, PLAYER_COLORS[c.idx]);
+    this.tintObj(cursor, col, null, col);
     cursor.traverse((o) => { o.castShadow = false; o.receiveShadow = false; });
     cursor.visible = false;
     this.root.add(cursor);
     this.root.add(g);
     g.position.set(c.x, 0, c.z);
     return {
-      c, g, model, mixer: new THREE.AnimationMixer(model), act: null, clip: null, at: null, sc: 1, n, anchor, ring, cursor, phase: c.idx * 1.7, lean: 0, hx: 0, hvx: 0, hz: 0, hvz: 0, hatx: 0, hatv: 0, blink: 1.5 + c.idx, pop: 0, lastVx: 0, lastVz: 0,
+      c, g, model, mixer: new THREE.AnimationMixer(model), act: null, clip: null, at: null, sc: 1, n, anchor, ring, ringMats, ready: true, ringPop: 0, cursor, phase: c.idx * 1.7, lean: 0, hx: 0, hvx: 0, hz: 0, hvz: 0, hatx: 0, hatv: 0, blink: 1.5 + c.idx, pop: 0, lastVx: 0, lastVz: 0,
       hl: new THREE.Vector3().copy(n.handL.userData.p0), hr: new THREE.Vector3().copy(n.handR.userData.p0), hold: new THREE.Vector3(), cursorTile: null, cursorPop: 0, dustT: 0, sprayT: 0,
     };
   }
@@ -491,6 +513,20 @@ export class View {
     if (record) this.fx.startConfetti();
   }
 
+  /** VS ending: winner victory and a push-in (confetti on a K.O.), loser exhausted; a draw is the tired pull-back */
+  beginEndVs(r) {
+    const win = this.world.chefs[r.winner];
+    this.end = win ? { record: false, t: 0, dur: 1.6, mult: 0.55, shift: 0.2, stage: { x: win.x, z: win.z - 0.3 } } : { record: false, t: 0, dur: 1.4, mult: 1.25, shift: 0.10, stage: null };
+    if (win && r.ko) { this.end.rain = 0; this.fx.startConfetti(); }
+    this.chefViews.forEach((cv) => {
+      const w = cv.c === win;
+      cv.at = { x: cv.c.x, z: cv.c.z, face: cv.c.face, f0: cv.c.face };
+      cv.turn = w ? wrapPi(-cv.c.face) : clamp(wrapPi(-cv.c.face), -0.61, 0.61); // winner squares up to the camera
+      this.playClip(cv, w ? 'victory' : 'exhausted');
+      this.fx.dust(cv.c.x, cv.c.z, 5, 0.08, 0.7);
+    });
+  }
+
   /** loop a model animation on a chef; with no such clip the procedural idle stays */
   playClip(cv, name) {
     const clip = clipOf(cv.c.idx === 0 ? 'chef_cat' : 'chef_raccoon', name);
@@ -521,7 +557,7 @@ export class View {
         cv.sc = 1 + 2.7 * (k - 1) ** 3 + 1.7 * (k - 1) ** 2; // ease out back
       }
     });
-    if (!e.record) return;
+    if (e.rain == null) return;
     // confetti: a burst over the stage, then a steady rain over the whole kitchen
     const w = this.world, hw = w.W / 2, hh = w.H / 2;
     if (e.rain === 0 && e.t >= 0.3) { e.rain = 1; fx.rain(400, 45, e.stage.x - 2.5, e.stage.x + 2.5, e.stage.z - 2, e.stage.z + 2, 1.5, 8); }
@@ -590,6 +626,7 @@ export class View {
       } else {
         sv.scroll = (sv.scroll + dt * (st.flash > 0 ? 3.2 : 0.35)) % 0.23;
         sv.belt.position.x = sv.beltX + sv.scroll;
+        if (sv.mascot) { sv.mascot.position.y = CANOPY_Y + Math.sin(time * 2.4 + st.owner * 2) * 0.04; sv.mascot.rotation.y = time * 0.9 - sv.g.rotation.y; }
       }
     }
     for (const bv of this.beltViews) for (const s of bv.slats) s.node.position.x = s.x0 + (bv.belt.scroll % 0.25);
@@ -605,7 +642,7 @@ export class View {
     }
 
     this.stepEnd(dt);
-    for (const cv of this.chefViews) this.updateChef(cv, dt, time, live);
+    for (const cv of this.chefViews) { this.updateStun(cv, dt, time); this.updateChef(cv, dt, time, live); }
     this.syncItems(dt, time);
     this.updateServed(dt);
     this.applyCamera(dt);
@@ -688,7 +725,8 @@ export class View {
     const c = cv.c, n = cv.n, fx = this.fx, at = cv.at;
     if (cv.act) { // a model animation drives the pose: only position, scale and the ring are ours
       cv.mixer.update(dt);
-      cv.g.position.set(at.x, 0, at.z); cv.g.rotation.y = at.face;
+      const p = at || c; // a stun clip plays mid-game, before any end staging
+      cv.g.position.set(p.x, 0, p.z); cv.g.rotation.y = p.face;
       cv.model.rotation.x = 0; cv.model.scale.setScalar(CHEF_S * cv.sc);
       cv.g.updateMatrixWorld(true); cv.anchor.getWorldPosition(cv.hold);
       this.chefRing(cv, dt, time, live);
@@ -780,12 +818,43 @@ export class View {
     if (work && work.kind === 'wash' && Math.random() < dt * 20) fx.suds(cv.hold.x + fwdX * 0.25, 0.95, cv.hold.z + fwdZ * 0.25, 1);
   }
 
+  /** VS stun: the dizzy clip and three gold stars orbit the head until the stun wears off, then the procedural pose resumes */
+  updateStun(cv, dt, time) {
+    const c = cv.c, on = c.stun > 0 && !this.end;
+    if (!on && cv.clip === 'dizzy') {
+      cv.mixer.stopAllAction(); cv.act = null; cv.clip = null;
+      for (const o of Object.values(cv.n)) { o.position.copy(o.userData.p0); o.rotation.copy(o.userData.r0); o.scale.copy(o.userData.s0); } // the clip moved every part
+    }
+    if (!cv.stars) {
+      if (!on) return;
+      const geo = meshesOf('fx_star')[0].geometry, mat = new THREE.MeshBasicMaterial();
+      mat.color.setRGB(4, 3, 0.6); // above 1 so bloom catches them
+      this.extras.push(mat);
+      cv.stars = new THREE.Group();
+      for (let i = 0; i < 3; i++) { const m = new THREE.Mesh(geo, mat); m.scale.setScalar(0.42); cv.stars.add(m); }
+      cv.stars.rotation.x = 0.22; // tilted orbit
+      this.root.add(cv.stars);
+    }
+    cv.stars.visible = on;
+    if (!on) return;
+    cv.stars.position.set(c.x, STAR_Y + Math.sin(time * 5) * 0.03, c.z);
+    if (Math.random() < dt * 14) { const a = Math.random() * 6.28; this.fx.star.spawn({ x: c.x + Math.cos(a) * 0.45, y: STAR_Y + 0.05 + Math.random() * 0.15, z: c.z + Math.sin(a) * 0.45, vx: 0, vy: 0.5, vz: 0, life: 0.4, s0: 0.1, s1: 0, r: 3, g: 3, b: 3, spin: 6 }); } // white twinkles
+    cv.stars.children.forEach((m, i) => { const a = time * 4 + i * 2.094; m.position.set(Math.cos(a) * 0.45, Math.sin(a * 2) * 0.03, Math.sin(a) * 0.45); m.rotation.set(-0.98, 0, a * 2); }); // faces the camera, spinning
+  }
+
   /** ground ring and target cursor of a chef (cursor hidden once the shift is over) */
   chefRing(cv, dt, time, live) {
     const c = cv.c, at = cv.at;
     cv.ring.position.set(at ? at.x : c.x, 0.015, at ? at.z : c.z);
     cv.ring.rotation.y = at ? at.face : c.face;
-    const rs = (1 + Math.sin(time * 4 + c.idx) * 0.03) * cv.sc;
+    if (cv.ringMats.length) { // VS: dim while the dash recharges, pop when it is ready again
+      const rdy = c.dashCd <= 0;
+      if (rdy && !cv.ready && live) { cv.ringPop = 1; this.fx.ringPop(c.x, 0.1, c.z, VS_POP[c.idx], 10, 1.3); }
+      cv.ready = rdy;
+      cv.ringPop = Math.max(0, cv.ringPop - dt * 4);
+      for (const m of cv.ringMats) { m.opacity = lerp(m.opacity, rdy ? 1 : 0.3, 0.2); m.emissiveIntensity = rdy ? 1 : 0.2; }
+    }
+    const rs = (1 + Math.sin(time * 4 + c.idx) * 0.03 + cv.ringPop * 0.3) * cv.sc;
     cv.ring.scale.set(rs, 1, rs);
     const tgt = live && !this.end ? c.target : null;
     if (tgt !== cv.cursorTile) { cv.cursorTile = tgt; cv.cursorPop = 1; }
@@ -952,6 +1021,14 @@ export class View {
       case 'splash': fx.splash(ev.x, -0.2, ev.z, 18); fx.popup('SPLASH', ev.x, 0.3, ev.z, 'small bad'); break;
       case 'serve': {
         const t = ev.tile;
+        if (w.mode === 'vs') { // no points in VS: the tug bar moves instead
+          fx.burst(t.x, 1.1, t.z, ev.vip ? 44 : 30, VS_POP[ev.owner], 3.6, 0.26);
+          fx.ringPop(t.x, 1.0, t.z, VS_POP[ev.owner], 16, 2.6);
+          fx.popup(ev.vip ? 'VIP +' + Math.round(TUNE.tugVip * 100) + '%' : '+' + Math.round(TUNE.tugStep * 100) + '%', t.x, 1.3, t.z, 'score');
+          this.dishAway(t, ev.dish);
+          this.shake = Math.max(this.shake, ev.vip ? 0.5 : 0.3);
+          break;
+        }
         fx.burst(t.x, 1.1, t.z, 34, [3.2, 2.3, 0.5], 3.6, 0.26);
         fx.ringPop(t.x, 1.0, t.z, [3.2, 2.6, 0.8], 16, 2.6);
         fx.popup('+' + ev.base, t.x, 1.3, t.z, 'score');
@@ -982,6 +1059,15 @@ export class View {
       case 'islandMove': this.shake = Math.max(this.shake, 0.25); for (const t of w.island.tiles) if (t.mi === 0 || t.mi === w.island.tiles.length - 1) fx.dust(t.x, t.z, 6, 0.08, 1.2); break;
       case 'islandStop': for (const t of w.island.tiles) if (t.mi === 0 || t.mi === w.island.tiles.length - 1) fx.dust(t.x, t.z, 5, 0.08, 1.0); this.shake = Math.max(this.shake, 0.2); break;
       case 'islandWarn': for (const t of w.island.tiles) fx.star.spawn({ x: t.x, y: 0.12, z: t.z + 0.45, vx: 0, vy: 1.5, vz: 0.4, life: 0.5, s0: 0.12, s1: 0, r: 3, g: 2.2, b: 0.5, spin: 8 }); break;
+      case 'stun': {
+        this.playClip(this.chefViews[ev.chef.idx], 'dizzy');
+        fx.burst(ev.x, 1.0, ev.z, 16, [3.4, 2.8, 1.4], 3.4, 0.22);
+        fx.ringPop(ev.x, 1.0, ev.z, [3.4, 2.8, 1.4], 14, 2.2);
+        this.shake = Math.max(this.shake, 0.45);
+        break;
+      }
+      case 'knock': fx.dust(ev.chef.x, ev.chef.z, 4, 0.9, 0.8); break; // the item itself rides the flights list, with its trail
+      case 'ko': this.shake = Math.max(this.shake, 1.0); break;
       case 'ticketMissed': this.shake = Math.max(this.shake, 0.25); break;
       case 'timeup': this.shake = Math.max(this.shake, 1.0); break;
       default: break;

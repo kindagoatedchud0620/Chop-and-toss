@@ -5,12 +5,13 @@ const $ = (id) => document.getElementById(id);
 const STAR = '<svg viewBox="0 0 24 24"><path d="M12 2.2l2.9 6.3 6.9.8-5.1 4.7 1.4 6.8L12 17.4l-6.1 3.4 1.4-6.8-5.1-4.7 6.9-.8z"/></svg>';
 // end-of-round timeline, ms of real time (see showSummary)
 const ROW_GAP = 250, ROW_DUR = 600, SCORE_DUR = 1200, STAR_WAIT = 350, STAR_GAP = 450, STAR_LAND = 160, SETTLE = 300;
+export const vsWinner = (r) => (r.winner === 0 ? 'CAT CHEF WINS' : r.winner === 1 ? 'RACCOON CHEF WINS' : 'DRAW');
 const BEST_IN = 400, BEST_HOLD = 700, SMASH_DUR = 280, NUM_DELAY = 350, BANNER_DELAY = 200, BANNER_IN = 350;
 
 export class Hud {
   constructor() {
     this.el = { hud: $('hud'), tickets: $('tickets'), streak: $('streak'), clock: $('clock'), score: $('score'), map: $('mapname'), alarm: $('alarm'), center: $('center'), big: $('big'), sub: $('sub'),
-      title: $('title'), summary: $('summary'), sound: $('sound'), best: $('best'), loading: $('loading'), loadbar: $('loadbar') };
+      tug: $('tug'), title: $('title'), summary: $('summary'), sound: $('sound'), best: $('best'), loading: $('loading'), loadbar: $('loadbar') };
     this.tickets = new Map();
     this.thumbs = {};
     this.last = {};
@@ -28,7 +29,7 @@ export class Hud {
 
   setThumbs(t) {
     this.thumbs = t;
-    $('face-p1').src = t.chef_cat; $('face-p2').src = t.chef_raccoon;
+    $('face-p1').src = $('tug-face-p1').src = t.chef_cat; $('face-p2').src = $('tug-face-p2').src = t.chef_raccoon;
   }
 
   /** ingredient flow picture for a dish, built from its data */
@@ -66,18 +67,24 @@ export class Hud {
     this.last = {};
     this.el.map.textContent = world.map.name;
     this.el.streak.classList.add('hidden');
+    const vs = world.mode === 'vs';
+    this.el.hud.classList.toggle('vs', vs);
+    this.el.tug.classList.toggle('hidden', !vs);
+    this.el.tug.classList.remove('bump-p1', 'bump-p2', 'vip-shove', 'danger-p1', 'danger-p2');
+    this.el.hud.classList.remove('hud-shake');
     this.el.alarm.style.opacity = '0';
     this.hideSummary();
     this.menuStrip(world.menu);
     this.center('', '');
   }
 
-  center(big, sub = '', cls = '') {
+  center(big, sub = '', cls = '', subCls = '') {
     const show = !!(big || sub);
     this.el.center.classList.toggle('hidden', !show);
     if (this.last.big !== big) { this.el.big.textContent = big; this.last.big = big; }
     if (this.last.sub !== sub) { this.el.sub.textContent = sub; this.last.sub = sub; }
     this.el.big.className = cls;
+    this.el.sub.className = subCls;
   }
   centerScale(s, alpha = 1) { this.el.big.style.transform = `scale(${s.toFixed(3)})`; this.el.big.style.opacity = alpha.toFixed(2); }
 
@@ -101,6 +108,12 @@ export class Hud {
       if (!t) { t = this.ticketEl(tk); this.tickets.set(tk.id, t); }
       const f = Math.max(0, tk.t / tk.dur);
       t.bar.style.transform = `scaleX(${f.toFixed(3)})`;
+      if (!!tk.vip !== !!t.vip) { // a ticket can turn VIP after it appeared
+        t.vip = !!tk.vip;
+        t.el.classList.toggle('vip', t.vip);
+        t.el.querySelector('.vip-tag')?.remove();
+        if (t.vip) t.el.insertAdjacentHTML('beforeend', '<span class="vip-tag">VIP</span>');
+      }
       const cls = (f < 0.22 ? 'late ' : f < 0.5 ? 'warn ' : '') + (i === 0 ? 'next' : '');
       if (cls !== t.cls) { t.el.classList.remove('late', 'warn', 'next'); for (const c of cls.split(' ')) if (c) t.el.classList.add(c); t.cls = cls; }
     });
@@ -112,6 +125,7 @@ export class Hud {
       t.el.style.left = t.el.offsetLeft + 'px';
       setTimeout(() => t.el.remove(), 260);
     }
+    if (world.mode === 'vs') this.updateTug(world.tug);
     // clock and score
     const secs = Math.ceil(world.timeLeft - 1e-6);
     if (secs !== this.last.secs) {
@@ -138,6 +152,30 @@ export class Hud {
     else if (alarmLevel === 1) a = 0.12 + 0.4 * Math.pow(Math.max(0, Math.sin(this.alarmT * Math.PI)), 6);
     const ao = a.toFixed(2);
     if (ao !== this.last.alarm) { this.last.alarm = ao; this.el.alarm.style.opacity = ao; }
+  }
+
+  /** tug of war bar: fill and knot follow the share of Player 1, the numbers are whole and sum to 100 */
+  updateTug(tug) {
+    const p1 = Math.round(tug * 100);
+    if (p1 === this.last.tug) return;
+    this.last.tug = p1;
+    $('tug-fill').style.width = p1 + '%'; $('tug-knot').style.left = p1 + '%';
+    $('tug-pct').textContent = `${p1} : ${100 - p1}`;
+    this.el.tug.classList.toggle('danger-p1', p1 <= 20);
+    this.el.tug.classList.toggle('danger-p2', p1 >= 80);
+  }
+  /** pulse toward the side that just scored ('tug' event) */
+  tugBump(ev) {
+    const t = this.el.tug;
+    t.classList.remove('bump-p1', 'bump-p2', 'vip-shove'); void t.offsetWidth;
+    t.classList.add(ev.by === 0 ? 'bump-p1' : 'bump-p2');
+    if (ev.vip) t.classList.add('vip-shove');
+  }
+  /** a VIP ticket arrived: shake the whole HUD once */
+  vipShake() {
+    const h = this.el.hud;
+    h.classList.remove('hud-shake'); void h.offsetWidth; h.classList.add('hud-shake');
+    setTimeout(() => h.classList.remove('hud-shake'), 500);
   }
 
   markMissed(tk) { const t = this.tickets.get(tk.id); if (t) t.missed = true; }
@@ -224,6 +262,25 @@ export class Hud {
     return stars;
   }
 
+  /** VS result: reuses the summary panel, the co-op parts are hidden */
+  showVsSummary(world) {
+    this.hideSummary();
+    const r = world.result, vs = world.stats.vs, p1 = Math.round(world.tug * 100);
+    const col = (name, i) => `<div class="vs-col p${i + 1}"><div class="vs-row"><b>${name}</b><span>${i ? 100 - p1 : p1}% of the rope</span></div>` +
+      [['served', 'Dishes served'], ['vip', 'VIP served'], ['stuns', 'Stuns landed'], ['knocked', 'Items knocked out']].map(([k, l]) => `<div class="vs-row"><b>${vs[i][k]}</b><span>${l}</span></div>`).join('') + '</div>';
+    const box = document.createElement('div');
+    box.id = 'vs-result';
+    box.innerHTML = `<div class="vs-winner ${r.winner < 0 ? 'draw' : 'p' + (r.winner + 1)}">${vsWinner(r)}</div><div class="vs-bar"><div class="vs-bar-fill" style="width:${p1}%"></div></div><div class="vs-stats">${col('CAT', 0)}${col('RACCOON', 1)}</div>`;
+    $('again').before(box);
+    this.el.summary.querySelector('.sum-head').textContent = r.ko ? 'K.O. VICTORY!' : 'TIME UP';
+    $('sum-map').textContent = world.map.name;
+    for (const e of this.coopParts()) e.style.display = 'none';
+    this.el.tug.classList.add('hidden'); // the panel has its own static bar; reset() shows it again
+    this.el.summary.classList.remove('hidden');
+    this.setPhase('done');
+  }
+  coopParts() { return [$('stars'), $('sum-score').parentElement, $('sum-rows'), $('sum-foot')]; }
+
   later(ms, fn) { this.timers.push(setTimeout(fn, ms)); }
   /** eased 0..1 over ms in real time; draw(e) gets the eased value */
   tween(ms, draw) {
@@ -261,5 +318,8 @@ export class Hud {
     $('sum-oldbest').classList.remove('pop');
     $('sum-bestcard').classList.remove('show', 'gold');
     $('sum-banner').classList.remove('show', 'live');
+    $('vs-result')?.remove();
+    for (const e of this.coopParts()) e.style.display = '';
+    sum.querySelector('.sum-head').textContent = 'TIME UP';
   }
 }

@@ -8,10 +8,17 @@ const MAX_PLANS = 2;
 const HELP_RANGE = 6.5;
 
 export class BotTeam {
-  constructor(world, { log = null } = {}) {
+  constructor(world, { log = null, solo = null } = {}) {
     this.w = world;
     this.log = log;
-    this.roles = world.map.bot;
+    this.solo = solo; // VS: this team is one chef playing for itself
+    if (world.mode === 'vs' && solo == null) {
+      // VS: two independent single-chef teams, one per chef
+      this.subs = [0, 1].map((i) => new BotTeam(world, { log, solo: i }));
+      this.brains = this.subs.map((s, i) => s.brains[i]);
+      return;
+    }
+    this.roles = solo == null ? world.map.bot : { prep: solo, cook: solo, wash: solo };
     this.tick = 0;
     this.neglect = 0;
     this.plans = [];
@@ -19,8 +26,13 @@ export class BotTeam {
     this.brains = world.chefs.map((chef, i) => ({ chef, i, task: null, wait: 0, lastX: chef.x, lastZ: chef.z, still: 0, nudge: 0, nx: 0, nz: 0, field: null, fieldTick: -1, bad: new Map(), parkT: 0 }));
     const cx = (list) => list.reduce((s, t) => s + t.x, 0) / Math.max(1, list.length);
     const cz = (list) => list.reduce((s, t) => s + t.z, 0) / Math.max(1, list.length);
-    const stoves = world.tiles.filter((t) => t.kind === 'stove');
-    const hatch = world.tiles.filter((t) => t.kind === 'hatch');
+    let stoves = world.tiles.filter((t) => t.kind === 'stove');
+    let hatch = world.tiles.filter((t) => t.kind === 'hatch');
+    if (solo != null) { // own hatch and the stoves nearest to it
+      const hx = this.hatchOf(this.brains[solo]).x, hz = this.hatchOf(this.brains[solo]).z;
+      hatch = [this.hatchOf(this.brains[solo])];
+      stoves = stoves.sort((a, c) => Math.hypot(a.x - hx, a.z - hz) - Math.hypot(c.x - hx, c.z - hz)).slice(0, Math.ceil(stoves.length / 2));
+    }
     this.cookSpot = { x: (cx(stoves) + cx(hatch)) / 2, z: (cz(stoves) + cz(hatch)) / 2 };
     this.homeExt = world.tiles.find((t) => t.ch === 'e') || null;
   }
@@ -32,6 +44,12 @@ export class BotTeam {
     const w = this.w;
     this.tick++;
     const act = this.active || (this.active = [true, true]);
+    if (this.subs) {
+      if (this.neglect > 0) this.neglect--;
+      // alternate who moves first so neither side wins every shared-resource tie
+      for (const i of this.tick % 2 ? [0, 1] : [1, 0]) { const s = this.subs[i]; s.active = [i === 0 && act[0], i === 1 && act[1]]; s.neglect = this.neglect > 0 ? 1 : 0; s.update(); }
+      return;
+    }
     for (const b of this.brains) { if (!act[b.i]) continue; const i = b.chef.input; i.mx = 0; i.mz = 0; i.actHeld = false; }
     if (w.phase !== 'play') return;
     if (this.pending && this.pending.length) { const now = this.tick; const run = this.pending.filter((p) => p.at <= now); this.pending = this.pending.filter((p) => p.at > now); for (const p of run) p.fn(); }
@@ -42,6 +60,9 @@ export class BotTeam {
 
   think(b) {
     const c = b.chef;
+    // stunned: the sim ignores inputs, drop the task (a knocked item is recovered from the floor later)
+    if (c.stun > 0) { const t = b.task; b.task = null; b.still = 0; if (t && t.onFail) t.onFail(); return; }
+    if (this.solo != null && this.sabotage(b)) return;
     if (b.wait > 0) { b.wait--; return; }
     if (b.task && b.task.ttl-- <= 0) { this.say(b, 'timeout ' + b.task.note); this.fail(b); }
     if (!b.task) {
@@ -56,8 +77,40 @@ export class BotTeam {
     const trying = Math.hypot(c.input.mx, c.input.mz) > 0.5;
     if (trying && moved < 0.004) b.still++; else b.still = Math.max(0, b.still - 2);
     b.lastX = c.x; b.lastZ = c.z;
-    if (b.still > 40) { b.still = 0; b.nudge = 14; const a = w_rand(this.w) * Math.PI * 2; b.nx = Math.cos(a); b.nz = Math.sin(a); }
+    if (b.still > 40) {
+      b.still = 0; b.nudge = 14;
+      let a = w_rand(this.w) * Math.PI * 2;
+      const o = this.other(b).chef;
+      // VS: jammed head-on with the rival (one-tile bridge): sometimes back off
+      if (this.solo != null && Math.hypot(o.x - c.x, o.z - c.z) < 1.5 && w_rand(this.w) < 0.5) a = Math.atan2(c.z - o.z, c.x - o.x);
+      b.nx = Math.cos(a); b.nz = Math.sin(a);
+    }
     if (b.nudge > 0) { b.nudge--; c.input.mx = b.nx; c.input.mz = b.nz; }
+  }
+
+  /** VS: opportunistic dash into the rival when close, in a clear line and either worth it or by chance (rate limited) */
+  sabotage(b) {
+    const w = this.w, c = b.chef, o = this.other(b).chef;
+    if (w.time < (b.sabAt || 8) || c.dashCd > 0 || o.stun > 0 || o.stunImmune > 0) return false;
+    const dx = o.x - c.x, dz = o.z - c.z, d = Math.hypot(dx, dz), h = o.held;
+    if (d > 2.6 || d < 0.1 || !this.clearLine(c.x, c.z, o.x, o.z)) return false;
+    const rich = h && ((h.kind === 'plate' && h.contents.length) || (h.kind === 'ing' && h.state === 'cooked'));
+    if (w_rand(w) > (rich ? 0.02 : 0.001)) return false;
+    b.sabAt = w.time + 8 + w_rand(w) * 8;
+    c.input.mx = dx / d; c.input.mz = dz / d; c.input.dash = true;
+    this.say(b, 'dash at rival');
+    return true;
+  }
+
+  /** an item that belongs to the other VS team's plan: hands off */
+  foreign(it) { return !!(it && it.plan && it.plan.owner !== this); }
+
+  hatchOf(b) { const w = this.w; return (w.mode === 'vs' && w.hatches.find((h) => h.owner === b.i)) || w.hatches[0]; }
+  sinkOf(b) {
+    const w = this.w;
+    if (w.mode !== 'vs' || w.sinks.length < 2) return w.sinks[0];
+    const h = this.hatchOf(b);
+    return w.sinks.slice().sort((a, c) => Math.hypot(a.x - h.x, a.z - h.z) - Math.hypot(c.x - h.x, c.z - h.z))[0];
   }
 
   finish(b) { const t = b.task; b.task = null; if (t && t.onDone) t.onDone(); }
@@ -325,18 +378,19 @@ export class BotTeam {
     }
     // 2. bind plans to tickets by dish, oldest first
     const taken = new Set();
+    const tks = this.solo != null ? w.tickets.slice().sort((x, y) => !!y.vip - !!x.vip) : w.tickets; // VS: VIP first
     for (const p of this.plans) {
       if (p.dead) continue;
-      const tk = w.tickets.find((x) => x.dish === p.dish && !taken.has(x));
+      const tk = tks.find((x) => x.dish === p.dish && !taken.has(x));
       if (tk) { taken.add(tk); p.ticket = tk; } else p.dead = true;
     }
     for (const p of this.plans) if (p.dead) this.dissolve(p);
     this.plans = this.plans.filter((p) => !p.dead);
     // 3. new plans for the oldest unplanned tickets
-    for (const tk of w.tickets) {
-      if (this.plans.length >= MAX_PLANS) break;
+    for (const tk of tks) {
+      if (this.plans.length >= MAX_PLANS + (this.solo != null && tk.vip ? 1 : 0)) break;
       if (taken.has(tk)) continue;
-      const p = { id: this.planSeq++, dish: tk.dish, ticket: tk, comps: [], plate: null, pot: null, plateClaim: -1 };
+      const p = { owner: this, id: this.planSeq++, dish: tk.dish, ticket: tk, comps: [], plate: null, pot: null, plateClaim: -1 };
       const recipe = POT_RECIPES[tk.dish];
       if (recipe) {
         // soup and stew each own a pot; with one pot the second waits until it frees (shortcut: a pot left holding another recipe's items blocks until that dish is ordered again)
@@ -352,7 +406,7 @@ export class BotTeam {
       taken.add(tk);
       this.plans.push(p);
     }
-    this.plans.sort((a, c) => w.tickets.indexOf(a.ticket) - w.tickets.indexOf(c.ticket));
+    this.plans.sort((a, c) => tks.indexOf(a.ticket) - tks.indexOf(c.ticket));
     // 4. adopt orphans
     for (const p of this.plans) {
       if (!p.plate) {
@@ -389,7 +443,9 @@ export class BotTeam {
     if (c.held) return this.continueHeld(b) || { kind: 'wait', frames: 10, note: 'hold' };
     const cook = this.roles.cook === b.i, wash = this.roles.wash === b.i;
     // jobs after the '|' are the partner's speciality: only help with those when they are close by
-    const order = cook
+    const order = this.solo != null
+      ? ['serve', 'vesselDone', 'plateEarly', 'collect', 'move', 'clearBurnt', 'washUrgent', 'takeChopped', 'chop', 'fetch', 'wash', 'platesHome']
+      : cook
       ? ['serve', 'vesselDone', 'plateEarly', 'collect', 'move', 'clearBurnt', wash ? 'washUrgent' : null, wash ? 'wash' : null, '|', 'takeChopped', 'chop', 'fetch', wash ? null : 'wash', 'platesHome']
       : [wash ? 'platesHome' : null, 'takeChopped', wash ? 'washUrgent' : null, 'chop', 'move', 'fetch', wash ? 'wash' : null, '|', 'serve', 'vesselDone', 'plateEarly', 'collect', 'clearBurnt', wash ? null : 'wash', wash ? null : 'platesHome'];
     let helping = false;
@@ -483,12 +539,12 @@ export class BotTeam {
     }
     if (h.kind === 'plate') {
       if (h.dirty) {
-        const sink = w.sinks[0];
+        const sink = this.sinkOf(b);
         if (sink && this.reach(b, sink.tiles[0]) < Infinity) return this.use(sink.tiles[0], 'dirty plate to sink');
         return this.putDown(b, 'park dirty plate');
       }
       if (dishOfContents(h.contents)) {
-        const hatch = w.hatches[0];
+        const hatch = this.hatchOf(b);
         if (this.reach(b, hatch.tiles[0]) < Infinity) return this.use(hatch.tiles[0], 'serve ' + dishOfContents(h.contents));
         return this.putDown(b, 'park dish');
       }
@@ -689,7 +745,7 @@ export class BotTeam {
       }
     }
     if (!best || best.cost > 12) {
-      const hatch = w.hatches[0].tiles[0];
+      const hatch = this.hatchOf(b).tiles[0];
       const bt = this.beltToward(b, hatch);
       if (bt && (!best || bt.d + 4 < best.cost)) return this.use(bt.tile, `${h.type} onto belt`, { exact: true });
     }
@@ -702,7 +758,7 @@ export class BotTeam {
     let best = null;
     for (const t of stores) { const d = this.reach(b, t); if (d < Infinity && (!best || d < best.d)) best = { t, d }; }
     if (best && best.d < 12) return this.use(best.t, 'store clean plate');
-    const hatch = w.hatches[0].tiles[0];
+    const hatch = this.hatchOf(b).tiles[0];
     const bt = this.beltToward(b, hatch);
     if (bt) return this.use(bt.tile, 'clean plate onto belt', { exact: true });
     if (best) return this.use(best.t, 'store clean plate');
@@ -787,13 +843,13 @@ export class BotTeam {
     let best = null;
     for (const t of w.tiles) {
       const it = t.item;
-      if (!it || it.kind !== 'plate' || t.fire > 0 || this.claimed(b, t) || this.isBad(b, t)) continue;
+      if (!it || it.kind !== 'plate' || t.fire > 0 || this.claimed(b, t) || this.isBad(b, t) || this.foreign(it)) continue;
       const dish = dishOfContents(it.contents);
       if (!dish || !w.tickets.some((tk) => tk.dish === dish)) continue;
       const d = this.reach(b, t);
       if (d < Infinity && (!best || d < best.d)) best = { t, d };
     }
-    return best && this.reach(b, w.hatches[0].tiles[0]) < Infinity ? this.use(best.t, 'pick up finished dish') : null;
+    return best && this.reach(b, this.hatchOf(b).tiles[0]) < Infinity ? this.use(best.t, 'pick up finished dish') : null;
   }
 
   job_vesselDone(b) {
@@ -802,7 +858,9 @@ export class BotTeam {
     for (const t of list) {
       if (!(this.reach(b, t) < Infinity)) continue;
       const v = t.vessel;
-      const p = v.type === 'pot' ? t.planRef : v.items[0].plan;
+      let p = v.type === 'pot' ? t.planRef : v.items[0].plan;
+      if (p && p.owner !== this) continue;
+      if (p && !this.plans.includes(p)) p = null; // plan already dissolved
       if (p) {
         if (p.plate) {
           if (p.plate.where.k === 'tile' && !this.claimed(b, p.plate.where.tile) && this.reach(b, p.plate.where.tile) < Infinity) {
@@ -879,7 +937,7 @@ export class BotTeam {
       const tile = this.beltTileFor(belt, e);
       const mine = this.reach(b, tile), theirs = this.reach(this.other(b), tile);
       const cookFirst = this.roles.cook === b.i ? 0.5 : -0.5;
-      if (mine < Infinity && mine <= theirs + cookFirst && !this.claimed(b, tile)) {
+      if (mine < Infinity && (this.solo != null || mine <= theirs + cookFirst) && !this.claimed(b, tile)) {
         return this.use(tile, 'take ' + (it.type || it.kind) + ' off belt', {
           exact: true, ttl: 500, claims: [tile, it],
           valid: () => { if (it.where.k !== 'belt') return false; const e2 = belt.items.find((x) => x.item === it); return !!e2 && this.beltTileFor(belt, e2) === tile; },
@@ -893,7 +951,7 @@ export class BotTeam {
   job_move(b) {
     const w = this.w;
     for (const it of this.items) {
-      if (it.kind !== 'ing' || this.claimed(b, it)) continue;
+      if (it.kind !== 'ing' || this.claimed(b, it) || this.foreign(it)) continue;
       const k = it.where.k;
       if (k !== 'tile' && k !== 'floor' && k !== 'belt') continue;
       if (k === 'tile' && (it.where.tile.kind === 'board' || it.where.tile.fire > 0 || this.claimed(b, it.where.tile))) continue;
@@ -944,7 +1002,7 @@ export class BotTeam {
 
   job_wash(b) {
     const w = this.w;
-    const sink = w.sinks[0];
+    const sink = this.sinkOf(b);
     if (!sink || !(this.reach(b, sink.tiles[0]) < Infinity)) return null;
     if (sink.dirty > 0 && !this.claimed(b, sink.tiles[0])) return { kind: 'work', tile: sink.tiles[0], note: 'wash plates', claims: [sink.tiles[0]], ttl: 900, done: () => sink.dirty <= 0 };
     return this.dirtyAvailable(b);
@@ -953,7 +1011,7 @@ export class BotTeam {
   job_platesHome(b) {
     // clean plates sitting in a far-away sink get carried (or belted) back to the cooking area
     const w = this.w;
-    const sink = w.sinks[0];
+    const sink = this.sinkOf(b);
     if (!sink || sink.clean <= 0 || this.claimed(b, sink.tiles[0])) return null;
     if (!(this.reach(b, sink.tiles[0]) < Infinity)) return null;
     const cookB = this.brains[this.roles.cook];
@@ -968,7 +1026,7 @@ export class BotTeam {
     for (const t of w.tiles) {
       if (t.kind !== 'board' || !t.item || t.fire > 0 || this.claimed(b, t) || this.isBad(b, t)) continue;
       const it = t.item;
-      if (it.kind !== 'ing' || it.state === 'raw') continue;
+      if (it.kind !== 'ing' || it.state === 'raw' || this.foreign(it)) continue;
       if (!(this.reach(b, t) < Infinity)) continue;
       let ok = true;
       if (it.state === 'chopped' && this.kindOf(it)) ok = !!this.cookTile(b, it);
@@ -983,7 +1041,7 @@ export class BotTeam {
     const w = this.w;
     let best = null;
     for (const t of w.tiles) {
-      if (t.kind !== 'board' || !w.isChoppable(t.item) || t.fire > 0 || this.claimed(b, t) || this.isBad(b, t)) continue;
+      if (t.kind !== 'board' || !w.isChoppable(t.item) || this.foreign(t.item) || t.fire > 0 || this.claimed(b, t) || this.isBad(b, t)) continue;
       const d = this.reach(b, t);
       if (d < Infinity && (!best || d < best.d)) best = { t, d };
     }

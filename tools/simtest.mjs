@@ -1,4 +1,4 @@
-// Headless bot run of the pure simulation: node tools/simtest.mjs [map|all] [seed] [--log] [--fire] [--dishes=3,4,5] [--menus[=N]]
+// Headless bot run of the pure simulation: node tools/simtest.mjs [map|all] [seed] [--log] [--fire] [--dishes=3,4,5] [--menus[=N]] [--vs]
 import { World } from '../js/sim.js';
 import { BotTeam } from '../js/bot.js';
 import { MAPS, DISH_IDS } from '../js/data.js';
@@ -11,9 +11,10 @@ const fire = args.includes('--fire');
 const opt = (n) => { const a = args.find((x) => x === `--${n}` || x.startsWith(`--${n}=`)); return a ? a.split('=')[1] || '' : null; };
 const dishes = opt('dishes');
 const menusN = opt('menus');
+const vs = args.includes('--vs');
 
 function run(m, menu) {
-  const w = new World(m, seed, menu);
+  const w = new World(m, seed, menu, vs ? { mode: 'vs' } : {});
   const bot = new BotTeam(w, { log: log ? (s) => console.log(s) : null });
   w.start();
   let frames = 0, idle = [0, 0];
@@ -23,6 +24,7 @@ function run(m, menu) {
     bot.update();
     w.step();
     for (const e of w.events) evCount[e.type] = (evCount[e.type] || 0) + 1;
+    if (vs) for (const e of w.events) if (e.type === 'hint' && e.text === 'WRONG HATCH') evCount.wrongHatch = (evCount.wrongHatch || 0) + 1;
     if (log) for (const e of w.events) if (['serve', 'serveWrong', 'ticketMissed', 'ignite', 'extinguished', 'burnt', 'splash', 'catch', 'ticket'].includes(e.type)) console.log(`[${w.time.toFixed(1)}] EVENT ${e.type} ${e.dish || (e.ticket && e.ticket.dish) || ''} ${e.tip != null ? 'tip ' + e.tip + ' x' + e.mult : ''}`);
     w.events.length = 0;
     bot.brains.forEach((b, i) => { if (!b.task) idle[i]++; });
@@ -52,6 +54,11 @@ if (menusN != null) {
   for (const m of which) {
     const { w, idle, frames, evCount } = run(m, menu);
     const s = w.stats;
+    if (vs) {
+      const v = s.vs, r = w.result;
+      console.log(`${MAPS[m].name.padEnd(26)} tug ${Math.round(w.tug * 100)}%  ${r ? (r.winner < 0 ? 'draw' : 'P' + (r.winner + 1) + ' wins') + (r.ko ? ' K.O.' : ' time') : 'unfinished'} @${Math.round(w.time)}s  served ${v[0].served}/${v[1].served}  vip ${v[0].vip}/${v[1].vip}  stuns ${v[0].stuns}/${v[1].stuns}  knocked ${v[0].knocked}/${v[1].knocked}  wrongHatch ${evCount.wrongHatch || 0}  idle ${idle.map((x) => Math.round(x / frames * 100) + '%').join('/')}`);
+      continue;
+    }
     console.log(`${MAPS[m].name.padEnd(26)} score ${String(w.score).padStart(5)}  ${w.menu.map((d) => `${d} ${s.served[d]}`).join(' ')}  missed ${s.missed} wrong ${s.wrong} fires ${s.fires} washed ${s.washed} thrown ${s.thrown} caught ${s.caught} splash ${evCount.splash || 0} bestStreak x${s.bestStreak}  idle ${idle.map((x) => Math.round(x / frames * 100) + '%').join('/')}`);
   }
 }
